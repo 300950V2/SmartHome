@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Smart Home Dashboard</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <div class="dash-wrap">
+
+    <div class="dash-header">
+      <div class="dash-header-left">
+        <div class="dash-logo">🏠</div>
+        <div>
+          <div class="dash-title">Smart Home</div>
+          <div class="dash-subtitle">สวัสดี, <%= username %></div>
+        </div>
+      </div>
+      <div class="header-actions">
+        <a href="/change-password" class="icon-btn" title="เปลี่ยนรหัสผ่าน">🔒</a>
+        <form method="POST" action="/logout">
+          <button type="submit" class="icon-btn" title="ออกจากระบบ">⏻</button>
+        </form>
+      </div>
+    </div>
+
+    <!-- ===== Sensor cards ===== -->
+    <div class="sensor-grid">
+      <div class="sensor-card glass">
+        <div class="sensor-label">🌤️ ภายนอก</div>
+        <div class="sensor-temp"><span id="outdoor-temp"><%= sensor.outdoor.temp !== null ? sensor.outdoor.temp.toFixed(1) : '--' %></span><span>°C</span></div>
+        <div class="sensor-humidity">💧 ความชื้น <span id="outdoor-humidity"><%= sensor.outdoor.humidity !== null ? Math.round(sensor.outdoor.humidity) : '--' %></span>%</div>
+      </div>
+      <div class="sensor-card glass">
+        <div class="sensor-label">🛏️ ห้องนอน</div>
+        <div class="sensor-temp"><span id="bedroom-temp"><%= sensor.bedroom.temp !== null ? sensor.bedroom.temp.toFixed(1) : '--' %></span><span>°C</span></div>
+        <div class="sensor-humidity">💧 ความชื้น <span id="bedroom-humidity"><%= sensor.bedroom.humidity !== null ? Math.round(sensor.bedroom.humidity) : '--' %></span>%</div>
+      </div>
+      <div class="sensor-updated" id="last-update">
+        <%= sensor.lastUpdate ? 'อัปเดตล่าสุด ' + new Date(sensor.lastUpdate).toLocaleString('th-TH') : 'ยังไม่มีข้อมูลจากเซ็นเซอร์' %>
+      </div>
+    </div>
+
+    <!-- ===== AC control ===== -->
+    <div class="section">
+      <div class="section-title">เครื่องปรับอากาศ</div>
+      <div class="ac-card glass">
+        <div class="ac-top">
+          <div class="ac-info">
+            <div class="ac-icon <%= devices.ac.power ? 'on' : '' %>" id="ac-icon">❄️</div>
+            <div>
+              <div class="ac-name">แอร์ห้องนอน</div>
+              <div class="ac-status" id="ac-status"><%= devices.ac.power ? `กำลังทำงาน · ${devices.ac.temp}°C` : 'ปิดอยู่' %></div>
+            </div>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="ac-switch" <%= devices.ac.power ? 'checked' : '' %>>
+            <span class="switch-track"><span class="switch-thumb"></span></span>
+          </label>
+        </div>
+
+        <div class="ac-temp-select">
+          <div class="temp-opt <%= devices.ac.temp === 24 ? 'active' : '' %> <%= !devices.ac.power ? 'disabled' : '' %>" data-temp="24">
+            <div class="deg">24°</div>
+            <div class="unit">เย็นสบาย</div>
+          </div>
+          <div class="temp-opt <%= devices.ac.temp === 30 ? 'active' : '' %> <%= !devices.ac.power ? 'disabled' : '' %>" data-temp="30">
+            <div class="deg">30°</div>
+            <div class="unit">ประหยัดไฟ</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== Front house lights ===== -->
+    <div class="section">
+      <div class="section-title">ไฟหน้าบ้าน</div>
+      <div class="device-grid">
+        <div class="device-card glass <%= devices.frontLight1 ? 'on' : '' %>" data-key="frontLight1">
+          <div class="device-top">
+            <div class="device-icon">💡</div>
+          </div>
+          <div>
+            <div class="device-name">ไฟหน้าบ้าน 1</div>
+            <div class="device-status"><%= devices.frontLight1 ? 'เปิดอยู่' : 'ปิดอยู่' %></div>
+          </div>
+        </div>
+        <div class="device-card glass <%= devices.frontLight2 ? 'on' : '' %>" data-key="frontLight2">
+          <div class="device-top">
+            <div class="device-icon">💡</div>
+          </div>
+          <div>
+            <div class="device-name">ไฟหน้าบ้าน 2</div>
+            <div class="device-status"><%= devices.frontLight2 ? 'เปิดอยู่' : 'ปิดอยู่' %></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== Living room lights ===== -->
+    <div class="section">
+      <div class="section-title">ไฟห้องนั่งเล่น</div>
+      <div class="device-grid">
+        <div class="device-card glass <%= devices.livingLight1 ? 'on' : '' %>" data-key="livingLight1">
+          <div class="device-top">
+            <div class="device-icon">💡</div>
+          </div>
+          <div>
+            <div class="device-name">ไฟห้องนั่งเล่น 1</div>
+            <div class="device-status"><%= devices.livingLight1 ? 'เปิดอยู่' : 'ปิดอยู่' %></div>
+          </div>
+        </div>
+        <div class="device-card glass <%= devices.livingLight2 ? 'on' : '' %>" data-key="livingLight2">
+          <div class="device-top">
+            <div class="device-icon">💡</div>
+          </div>
+          <div>
+            <div class="device-name">ไฟห้องนั่งเล่น 2</div>
+            <div class="device-status"><%= devices.livingLight2 ? 'เปิดอยู่' : 'ปิดอยู่' %></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <footer class="dash-footer">Smart Home Dashboard</footer>
+  </div>
+
+  <script src="/js/dashboard.js"></script>
+</body>
+</html>

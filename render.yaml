@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: mcu-dashboard
+    env: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /200
+    envVars:
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: MCU_API_KEY
+        generateValue: true
+      - key: NODE_ENV
+        value: production
