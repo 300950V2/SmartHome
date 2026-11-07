@@ -25,8 +25,41 @@ const state = {
   lastBeat: Date.now(),
   lastInfo: null,
   offline: false,
-  offlineSince: null
+  offlineSince: null,
+  esp: Object.create(null), // สถานะ entity ของ ESP แต่ละตัว ที่ HA ส่งมา { ชื่ออุปกรณ์: { entity_id: state } }
+  espUpdatedAt: null
 };
+
+// ค่าที่ HA ใช้บอกว่าอุปกรณ์ไม่ตอบสนอง (ESP ดับ/หลุด Wi-Fi)
+const OFFLINE_STATES = new Set(['unavailable', 'unknown', '']);
+
+// กรองข้อมูลที่ส่งมา: จำกัดขนาด และใช้ object ไร้ prototype กัน key แปลกๆ เช่น __proto__
+function sanitizeEsp(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const out = Object.create(null);
+  let devCount = 0;
+  for (const [devName, entities] of Object.entries(raw)) {
+    if (++devCount > 20) break;
+    if (!entities || typeof entities !== 'object' || Array.isArray(entities)) continue;
+    const clean = Object.create(null);
+    let n = 0;
+    for (const [entityId, value] of Object.entries(entities)) {
+      if (++n > 100) break;
+      clean[String(entityId).slice(0, 100)] = String(value).slice(0, 100);
+    }
+    out[String(devName).slice(0, 60)] = clean;
+  }
+  return out;
+}
+
+// สรุปว่า ESP แต่ละตัวออนไลน์ไหม (ออนไลน์ = มีอย่างน้อย 1 entity ที่ไม่ใช่ unavailable/unknown)
+function summarizeDevices() {
+  return Object.entries(state.esp).map(([name, entities]) => ({
+    name,
+    online: Object.values(entities).some(v => !OFFLINE_STATES.has(v)),
+    entities
+  }));
+}
 
 function safeEqual(a, b) {
   const ba = Buffer.from(String(a));
@@ -82,7 +115,13 @@ router.post('/', (req, res) => {
   const downMs = wasOffline ? now - state.offlineSince : 0;
 
   state.lastBeat = now;
-  state.lastInfo = req.body && typeof req.body === 'object' ? req.body : null;
+  const body = req.body && typeof req.body === 'object' ? req.body : null;
+  state.lastInfo = body ? { device: String(body.device || '').slice(0, 60) } : null;
+  const esp = body ? sanitizeEsp(body.esp) : null;
+  if (esp) {
+    state.esp = esp;
+    state.espUpdatedAt = now;
+  }
   state.offline = false;
   state.offlineSince = null;
 
@@ -104,7 +143,9 @@ router.get('/status', requireAuth, (req, res) => {
     lastBeat: new Date(state.lastBeat).toISOString(),
     secondsSinceLastBeat: Math.round((Date.now() - state.lastBeat) / 1000),
     timeoutSec: TIMEOUT_MS / 1000,
-    info: state.lastInfo
+    info: state.lastInfo,
+    espUpdatedAt: state.espUpdatedAt ? new Date(state.espUpdatedAt).toISOString() : null,
+    devices: summarizeDevices()
   });
 });
 
