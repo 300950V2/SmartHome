@@ -7,6 +7,7 @@ const path = require('path');
 const store = require('./data/store');
 const authRoutes = require('./routes/auth');
 const apiRoutes = require('./routes/api');
+const { router: heartbeatRoutes, startMonitor } = require('./routes/heartbeat'); // <-- เพิ่ม
 const { requireAuth } = require('./routes/middleware');
 
 const app = express();
@@ -42,6 +43,9 @@ app.get('/200', (req, res) => {
 // ---- auth routes (login, logout, change-password) ----
 app.use('/', authRoutes);
 
+// ---- heartbeat จากบอร์ด (ต้องอยู่ "ก่อน" /api เพื่อไม่ถูก apiRoutes ดักไว้) ----
+app.use('/api/heartbeat', heartbeatRoutes); // <-- เพิ่ม
+
 // ---- api routes (sensor data จาก MCU, ควบคุมอุปกรณ์) ----
 app.use('/api', apiRoutes);
 
@@ -62,4 +66,5 @@ app.use((req, res) => {
 
 app.listen(PORT, () => {
   console.log(`✓ Server running on port ${PORT}`);
+  startMonitor(); // <-- เพิ่ม: เริ่มตรวจว่าบอร์ดเงียบหรือไม่
 });
