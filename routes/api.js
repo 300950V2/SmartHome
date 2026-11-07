@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const store = require('../data/store');
-const heartbeat = require('./heartbeat'); // <-- เพิ่ม
+const heartbeat = require('./heartbeat');
 const { requireAuthApi, requireMcuKey } = require('./middleware');
 
 /**
@@ -27,17 +27,29 @@ router.get('/state', requireAuthApi, (req, res) => {
   res.json({ ok: true, sensor: db.sensor, devices: db.devices });
 });
 
-// ควบคุมแอร์: เปิด/ปิด
+// ควบคุมแอร์: กดปุ่ม "เปิด" หรือ "ปิด" (ยิง pulse/IR ครั้งเดียว ไม่ใช่ toggle ค้างสถานะ)
+// body: { "action": "power_on" | "power_off" }
 router.post('/ac/power', requireAuthApi, (req, res) => {
-  const { power } = req.body;
-  const ac = store.setAcPower(power);
-  res.json({ ok: true, ac });
+  const action = req.body && req.body.power === false ? 'power_off'
+               : req.body && req.body.power === true ? 'power_on'
+               : req.body && req.body.action;
+  if (action !== 'power_on' && action !== 'power_off') {
+    return res.status(400).json({ ok: false, message: 'action ต้องเป็น power_on หรือ power_off' });
+  }
+  const result = heartbeat.requestAcAction(action);
+  if (!result.ok) return res.status(400).json(result);
+  res.json(result);
 });
 
-// ควบคุมแอร์: เลือกอุณหภูมิ 24 หรือ 30 เท่านั้น
+// ควบคุมแอร์: กดปุ่มอุณหภูมิ 24 หรือ 30 (ยิง pulse temp_up/temp_down ครั้งเดียว ไม่ใช่ตั้งค่าตรงๆ)
+// body: { "temp": 24 | 30 }
 router.post('/ac/temp', requireAuthApi, (req, res) => {
-  const { temp } = req.body;
-  const result = store.setAcTemp(temp);
+  const temp = parseInt(req.body && req.body.temp, 10);
+  if (temp !== 24 && temp !== 30) {
+    return res.status(400).json({ ok: false, message: 'เลือกได้เฉพาะ 24 หรือ 30 องศาเท่านั้น' });
+  }
+  const action = temp === 24 ? 'temp_down' : 'temp_up';
+  const result = heartbeat.requestAcAction(action);
   if (!result.ok) return res.status(400).json(result);
   res.json(result);
 });
@@ -63,7 +75,7 @@ router.post('/device/:key/toggle', requireAuthApi, (req, res) => {
   const result = store.toggleDevice(req.params.key);
   if (!result.ok) return res.status(400).json(result);
 
-  // <-- เพิ่ม: ส่งคำสั่งไปที่บอร์ดจริง ตามสถานะใหม่ที่ผู้ใช้เห็นบนเว็บ
+  // ส่งคำสั่งไปที่บอร์ดจริง ตามสถานะใหม่ที่ผู้ใช้เห็นบนเว็บ
   const on = storeLightIsOn(req.params.key);
   const cmd = heartbeat.requestLight(req.params.key, on === null ? 'toggle' : (on ? 'on' : 'off'));
   if (!cmd.ok) console.warn(`[light] ${req.params.key}: ${cmd.message}`);

@@ -23,7 +23,9 @@ function defaultData() {
       lastUpdate: null
     },
     devices: {
-      ac: { power: false, temp: 24 },      // แอร์: เปิด/ปิด + อุณหภูมิ (24 หรือ 30 เท่านั้น)
+      // แอร์: เป็น IR แบบกดยิงสัญญาณ (pulse) ไม่มี state จริงให้อ่าน
+      // lastAction / lastTemp เก็บไว้แค่โชว์บนเว็บว่า "กดอะไรไปล่าสุด" ไม่ใช่สถานะจริงของแอร์
+      ac: { lastAction: null, lastTemp: null, lastActionAt: null },
       frontLight1: false,                   // ไฟหน้าบ้าน ดวงที่ 1
       frontLight2: false,                   // ไฟหน้าบ้าน ดวงที่ 2
       livingLight1: false,                  // ไฟห้องนั่งเล่น ดวงที่ 1
@@ -39,7 +41,13 @@ function load() {
     return fresh;
   }
   try {
-    return JSON.parse(fs.readFileSync(DB_FILE, 'utf-8'));
+    const data = JSON.parse(fs.readFileSync(DB_FILE, 'utf-8'));
+    // migrate: ถ้าเป็น db.json เก่าที่ ac ยังเป็น { power, temp } ให้แปลงเป็นรูปแบบใหม่
+    if (data.devices && data.devices.ac && typeof data.devices.ac.power === 'boolean') {
+      data.devices.ac = { lastAction: null, lastTemp: null, lastActionAt: null };
+      save(data);
+    }
+    return data;
   } catch (e) {
     const fresh = defaultData();
     fs.writeFileSync(DB_FILE, JSON.stringify(fresh, null, 2));
@@ -87,21 +95,21 @@ module.exports = {
     return db.sensor;
   },
 
-  // ---- devices ----
-  setAcPower(power) {
-    db.devices.ac.power = !!power;
-    save(db);
-    return db.devices.ac;
-  },
-  setAcTemp(temp) {
-    const t = parseInt(temp, 10);
-    if (t !== 24 && t !== 30) {
-      return { ok: false, message: 'เลือกได้เฉพาะ 24 หรือ 30 องศาเท่านั้น' };
+  // ---- devices: AC (แบบกดยิงสัญญาณ ไม่ใช่ toggle) ----
+  // action: 'power_on' | 'power_off' | 'temp_up' | 'temp_down'
+  // แค่บันทึกไว้โชว์บนเว็บว่า "กดอะไรไปล่าสุด" เท่านั้น ไม่ได้แปลว่าแอร์อยู่ในสถานะนั้นจริง
+  recordAcAction(action, temp) {
+    const allowed = ['power_on', 'power_off', 'temp_up', 'temp_down'];
+    if (!allowed.includes(action)) {
+      return { ok: false, message: 'คำสั่งแอร์ไม่ถูกต้อง' };
     }
-    db.devices.ac.temp = t;
+    db.devices.ac.lastAction = action;
+    db.devices.ac.lastActionAt = new Date().toISOString();
+    if (temp !== undefined) db.devices.ac.lastTemp = temp;
     save(db);
     return { ok: true, ac: db.devices.ac };
   },
+
   toggleDevice(key) {
     const allowed = ['frontLight1', 'frontLight2', 'livingLight1', 'livingLight2'];
     if (!allowed.includes(key)) return { ok: false, message: 'ไม่พบอุปกรณ์นี้' };

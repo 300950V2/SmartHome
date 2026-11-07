@@ -29,37 +29,52 @@ function renderSensor(sensor) {
   document.getElementById('last-update').textContent = fmtTime(sensor.lastUpdate);
 }
 
-// ---------- AC controls ----------
-const acSwitch = document.getElementById('ac-switch');
-const acIcon = document.getElementById('ac-icon');
+// ---------- AC controls (รีโมท IR แบบกดยิงสัญญาณ ไม่มี state จริงให้ sync) ----------
 const acStatus = document.getElementById('ac-status');
+const acPowerOnBtn = document.getElementById('ac-power-on');
+const acPowerOffBtn = document.getElementById('ac-power-off');
 const tempOpts = document.querySelectorAll('.temp-opt');
 
-function renderAc(ac) {
-  acSwitch.checked = ac.power;
-  acIcon.classList.toggle('on', ac.power);
-  acStatus.textContent = ac.power ? `กำลังทำงาน · ${ac.temp}°C` : 'ปิดอยู่';
+const AC_ACTION_LABEL = {
+  power_on: 'เปิด',
+  power_off: 'ปิด',
+  temp_up: 'อุณหภูมิ 30°C',
+  temp_down: 'อุณหภูมิ 24°C'
+};
 
-  tempOpts.forEach(opt => {
-    const t = parseInt(opt.dataset.temp, 10);
-    opt.classList.toggle('active', t === ac.temp);
-    opt.classList.toggle('disabled', !ac.power);
-  });
+// แค่โชว์ "กดอะไรไปล่าสุด" เป็นฟีดแบ็กชั่วคราว ไม่ใช่สถานะจริงของแอร์ (ไม่มี feedback จาก IR)
+function showAcLastAction(action) {
+  if (acStatus && AC_ACTION_LABEL[action]) {
+    acStatus.textContent = 'กดล่าสุด: ' + AC_ACTION_LABEL[action];
+  }
 }
 
-if (acSwitch) {
-  acSwitch.addEventListener('change', async () => {
-    const result = await postJSON('/api/ac/power', { power: acSwitch.checked });
-    if (result.ok) renderAc(result.ac);
-  });
+async function sendAcAction(action, extra) {
+  const result = await postJSON('/api/ac/' + (action === 'power_on' || action === 'power_off' ? 'power' : 'temp'),
+    action === 'power_on' ? { action: 'power_on' } :
+    action === 'power_off' ? { action: 'power_off' } :
+    extra // { temp: 24 } หรือ { temp: 30 }
+  );
+  if (result.ok) showAcLastAction(action);
+  return result;
+}
+
+if (acPowerOnBtn) {
+  acPowerOnBtn.addEventListener('click', () => sendAcAction('power_on'));
+}
+if (acPowerOffBtn) {
+  acPowerOffBtn.addEventListener('click', () => sendAcAction('power_off'));
 }
 
 tempOpts.forEach(opt => {
   opt.addEventListener('click', async () => {
-    if (opt.classList.contains('disabled')) return;
-    const temp = opt.dataset.temp;
-    const result = await postJSON('/api/ac/temp', { temp });
-    if (result.ok) renderAc(result.ac);
+    const temp = parseInt(opt.dataset.temp, 10);
+    const action = temp === 24 ? 'temp_down' : 'temp_up';
+    const result = await sendAcAction(action, { temp });
+    if (result.ok) {
+      tempOpts.forEach(o => o.classList.remove('active'));
+      opt.classList.add('active');
+    }
   });
 });
 
@@ -75,7 +90,7 @@ document.querySelectorAll('.device-card').forEach(card => {
   });
 });
 
-// ---------- poll for fresh sensor + device state every 5s ----------
+// ---------- poll for fresh sensor state every 5s (ไม่ดึง ac มาทับ เพราะไม่มี state จริงให้ sync) ----------
 async function pollState() {
   try {
     const res = await fetch('/api/state');
@@ -83,7 +98,6 @@ async function pollState() {
     const data = await res.json();
     if (data.ok) {
       renderSensor(data.sensor);
-      renderAc(data.devices.ac);
     }
   } catch (e) {
     // เงียบไว้ ไม่ต้องรบกวนผู้ใช้ด้วย error ทุก 5 วิ

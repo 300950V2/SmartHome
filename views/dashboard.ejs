@@ -42,30 +42,37 @@
       </div>
     </div>
 
-    <!-- ===== AC control ===== -->
+    <!-- ===== AC control (รีโมท IR แบบกดยิงสัญญาณ ไม่มีสถานะจริงให้อ่าน) ===== -->
     <div class="section">
       <div class="section-title">เครื่องปรับอากาศ</div>
       <div class="ac-card glass">
         <div class="ac-top">
           <div class="ac-info">
-            <div class="ac-icon <%= devices.ac.power ? 'on' : '' %>" id="ac-icon">❄️</div>
+            <div class="ac-icon" id="ac-icon">❄️</div>
             <div>
               <div class="ac-name">แอร์ห้องนอน</div>
-              <div class="ac-status" id="ac-status"><%= devices.ac.power ? `กำลังทำงาน · ${devices.ac.temp}°C` : 'ปิดอยู่' %></div>
+              <div class="ac-status" id="ac-status">
+                <%= devices.ac.lastAction ? 'กดล่าสุด: ' + (
+                  devices.ac.lastAction === 'power_on' ? 'เปิด' :
+                  devices.ac.lastAction === 'power_off' ? 'ปิด' :
+                  devices.ac.lastAction === 'temp_up' ? 'อุณหภูมิ 30°C' :
+                  devices.ac.lastAction === 'temp_down' ? 'อุณหภูมิ 24°C' : devices.ac.lastAction
+                ) : 'ยังไม่เคยสั่งงาน' %>
+              </div>
             </div>
           </div>
-          <label class="switch">
-            <input type="checkbox" id="ac-switch" <%= devices.ac.power ? 'checked' : '' %>>
-            <span class="switch-track"><span class="switch-thumb"></span></span>
-          </label>
+          <div class="ac-power-btns">
+            <button type="button" class="pulse-btn" id="ac-power-on">กด เปิด</button>
+            <button type="button" class="pulse-btn pulse-btn-off" id="ac-power-off">กด ปิด</button>
+          </div>
         </div>
 
         <div class="ac-temp-select">
-          <div class="temp-opt <%= devices.ac.temp === 24 ? 'active' : '' %> <%= !devices.ac.power ? 'disabled' : '' %>" data-temp="24">
+          <div class="temp-opt" data-temp="24">
             <div class="deg">24°</div>
             <div class="unit">เย็นสบาย</div>
           </div>
-          <div class="temp-opt <%= devices.ac.temp === 30 ? 'active' : '' %> <%= !devices.ac.power ? 'disabled' : '' %>" data-temp="30">
+          <div class="temp-opt" data-temp="30">
             <div class="deg">30°</div>
             <div class="unit">ประหยัดไฟ</div>
           </div>

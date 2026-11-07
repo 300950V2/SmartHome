@@ -1,6 +1,6 @@
 // routes/heartbeat.js
 // 1) รับ heartbeat + สถานะ ESP จากบอร์ด (Raspberry Pi / Home Assistant) และแจ้ง LINE เมื่อสัญญาณหาย (ไฟดับ)
-// 2) ให้บอร์ดมา "ถาม" ทุกไม่กี่วินาทีว่ามีคำสั่งเปิด/ปิดไฟค้างอยู่ไหม (POST /api/heartbeat/poll)
+// 2) ให้บอร์ดมา "ถาม" ทุกไม่กี่วินาทีว่ามีคำสั่งเปิด/ปิดไฟ หรือคำสั่งแอร์ (pulse) ค้างอยู่ไหม (POST /api/heartbeat/poll)
 //
 // ENV ที่ต้องตั้งบน Render:
 //   HEARTBEAT_TOKEN             รหัสลับ (ต้องตรงกับที่ตั้งฝั่ง Home Assistant)
@@ -20,7 +20,8 @@ const TIMEOUT_MS = (parseInt(process.env.HEARTBEAT_TIMEOUT_SEC, 10) || 180) * 10
 const CHECK_INTERVAL_MS = 30 * 1000;
 const LINE_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN || '';
 const LINE_TO = process.env.LINE_TO || '';
-const CMD_TTL_MS = 60 * 1000; // คำสั่งที่บอร์ดไม่ทำตามภายในเวลานี้ จะถูกทิ้ง
+const CMD_TTL_MS = 60 * 1000;     // คำสั่งไฟที่บอร์ดไม่ทำตามภายในเวลานี้ จะถูกทิ้ง
+const AC_CMD_TTL_MS = 30 * 1000;  // คำสั่งแอร์ (pulse) ถ้าค้างนานเกินนี้โดยไม่มีบอร์ดมาเอาไป ก็ทิ้ง
 
 // เริ่มต้นให้ lastBeat = เวลาที่เซิร์ฟเวอร์เริ่มทำงาน
 // (ถ้าเซิร์ฟเวอร์รีสตาร์ตแล้วบอร์ดยังเงียบเกินกำหนด ก็จะแจ้งเตือนตามปกติ)
@@ -35,8 +36,12 @@ const state = {
   switchesAt: null
 };
 
-// คำสั่งที่รอให้บอร์ดทำ: lightKey -> { target: 'on'|'off', at: เวลาที่สั่ง }
+// คำสั่งไฟที่รอให้บอร์ดทำ: lightKey -> { target: 'on'|'off', at: เวลาที่สั่ง }
 const pending = new Map();
+
+// คำสั่งแอร์ที่รอให้บอร์ดยิง (pulse ครั้งเดียว แล้วลบทิ้ง ไม่ต้องรอเทียบ state):
+// คิวเดียว เก็บตามลำดับ { action: 'power_on'|'power_off'|'temp_up'|'temp_down', at }
+let acQueue = [];
 
 // ---- ผูกชื่อ entity ใน HA เข้ากับค่าในระบบ (แก้ที่นี่ที่เดียว) ----
 // เซนเซอร์: เอาไปอัปเดต store.updateSensor() ให้ dashboard แสดงค่าจริง
@@ -52,6 +57,14 @@ const LIGHT_MAP = {
   frontLight2: 'switch.light_control_esp_lamp_no2',
   livingLight1: 'switch.light_control_esp_2_lamp_no1',
   livingLight2: 'switch.light_control_esp_2_lamp_no2'
+};
+
+// แอร์: คำสั่งฝั่งเว็บ -> script entity_id ใน HA (กดแล้วจบ ไม่มี state ค้าง)
+const AC_SCRIPT_MAP = {
+  power_on: 'script.power_on',
+  power_off: 'script.power_off',
+  temp_up: 'script.temp_up',
+  temp_down: 'script.temp_down'
 };
 
 // ค่าที่ HA ใช้บอกว่าอุปกรณ์ไม่ตอบสนอง (ESP ดับ/หลุด Wi-Fi)
@@ -156,9 +169,9 @@ function requestLight(key, action) {
   return { ok: true, target };
 }
 
-// คำสั่งที่ยังต้องทำ: ถ้าสถานะจริงตรงเป้าแล้ว หรือค้างนานเกินกำหนด ก็ลบทิ้ง
+// คำสั่งไฟที่ยังต้องทำ: ถ้าสถานะจริงตรงเป้าแล้ว หรือค้างนานเกินกำหนด ก็ลบทิ้ง
 // (ไม่มี ack แยก: ใช้สถานะจริงที่บอร์ดรายงานเป็นตัวยืนยัน และสั่งซ้ำได้ไม่เป็นไร)
-function collectCommands(now) {
+function collectLightCommands(now) {
   const commands = [];
   for (const [key, cmd] of pending) {
     const entity = LIGHT_MAP[key];
@@ -168,6 +181,34 @@ function collectCommands(now) {
     }
     commands.push({ entity, action: cmd.target });
   }
+  return commands;
+}
+
+// ---------------------------------------------------------------------
+// สั่งแอร์: เว็บเรียก requestAcAction() แล้วบอร์ดจะมาเอาคำสั่งตอน poll
+// เป็น "pulse" ล้วนๆ ไม่มี state ให้เทียบ เลยต่างไฟคือ: บอร์ด poll มาเจอครั้งเดียว
+// ก็ถือว่ายิงไปแล้ว ลบออกจากคิวทันที (ไม่ส่งซ้ำ)
+// action: 'power_on' | 'power_off' | 'temp_up' | 'temp_down'
+// ---------------------------------------------------------------------
+function requestAcAction(action) {
+  if (!Object.prototype.hasOwnProperty.call(AC_SCRIPT_MAP, action)) {
+    return { ok: false, message: 'คำสั่งแอร์ไม่ถูกต้อง' };
+  }
+  const now = Date.now();
+  // กันคิวบวมถ้าบอร์ดหลุดไปนาน: ตัดคำสั่งเก่าที่ค้างเกิน TTL ออกก่อน
+  acQueue = acQueue.filter(c => now - c.at <= AC_CMD_TTL_MS);
+  acQueue.push({ action, at: now });
+
+  let temp;
+  const result = store.recordAcAction(action, temp);
+  return { ok: true, action, ac: result.ac };
+}
+
+// ดึงคำสั่งแอร์ทั้งหมดที่ค้างอยู่ออกมาให้บอร์ด แล้วเคลียร์คิวทันที (เป็น pulse ส่งครั้งเดียว)
+function collectAcCommands(now) {
+  acQueue = acQueue.filter(c => now - c.at <= AC_CMD_TTL_MS);
+  const commands = acQueue.map(c => ({ entity: AC_SCRIPT_MAP[c.action], action: 'press' }));
+  acQueue = [];
   return commands;
 }
 
@@ -263,7 +304,9 @@ router.post('/', (req, res) => {
 
 // ---- บอร์ดมาถามคำสั่ง: POST /api/heartbeat/poll (ทุก ~5 วินาที) ----
 // body:  { "switches": { "switch.xxx": "on", ... } }  สถานะรีเลย์จริงตอนนี้
-// ตอบ:   { "ok": true, "commands": [ { "entity": "switch.xxx", "action": "on" } ] }
+// ตอบ:   { "ok": true, "commands": [ { "entity": "switch.xxx", "action": "on" | "off" | "press" } ] }
+//   - ไฟ: action เป็น "on"/"off" (ยิงซ้ำได้จนกว่า state จะตรง)
+//   - แอร์: action เป็น "press" (เรียก script.turn_on กับ entity นั้น แล้วจบ ไม่ยิงซ้ำ)
 router.post('/poll', (req, res) => {
   if (!checkToken(req, res)) return;
 
@@ -276,7 +319,8 @@ router.post('/poll', (req, res) => {
     state.switchesAt = now;
   }
 
-  res.json({ ok: true, commands: collectCommands(now) });
+  const commands = [...collectLightCommands(now), ...collectAcCommands(now)];
+  res.json({ ok: true, commands });
 });
 
 // ---- สั่งไฟจากหน้าเว็บ (ต้อง login): POST /api/heartbeat/light/:key  body { "state": "on" | "off" | "toggle" } ----
@@ -297,6 +341,7 @@ router.get('/status', requireAuth, (req, res) => {
     espUpdatedAt: state.espUpdatedAt ? new Date(state.espUpdatedAt).toISOString() : null,
     lights: currentLights(),
     pending: Object.fromEntries(pending),
+    acPending: acQueue.map(c => c.action),
     devices: summarizeDevices()
   });
 });
@@ -319,4 +364,4 @@ function startMonitor() {
   console.log(`✓ Heartbeat monitor started (timeout ${TIMEOUT_MS / 1000}s)`);
 }
 
-module.exports = { router, startMonitor, requestLight };
+module.exports = { router, startMonitor, requestLight, requestAcAction };
