@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const store = require('../data/store');
+const heartbeat = require('./heartbeat'); // <-- เพิ่ม
 const { requireAuthApi, requireMcuKey } = require('./middleware');
 
 /**
@@ -41,10 +42,32 @@ router.post('/ac/temp', requireAuthApi, (req, res) => {
   res.json(result);
 });
 
+// อ่านว่า store บอกว่าไฟดวงนี้ "เปิด" อยู่หรือไม่ (เดารูปแบบข้อมูลหลายแบบ) คืน true/false หรือ null ถ้าอ่านไม่ได้
+function storeLightIsOn(key) {
+  const devices = store.getDB().devices;
+  const v = devices && devices[key];
+  if (typeof v === 'boolean') return v;
+  if (v && typeof v === 'object') {
+    for (const field of ['on', 'state', 'power', 'status']) {
+      const x = v[field];
+      if (typeof x === 'boolean') return x;
+      if (x === 'on' || x === 'ON') return true;
+      if (x === 'off' || x === 'OFF') return false;
+    }
+  }
+  return null;
+}
+
 // ควบคุมไฟ (toggle) - key: frontLight1, frontLight2, livingLight1, livingLight2
 router.post('/device/:key/toggle', requireAuthApi, (req, res) => {
   const result = store.toggleDevice(req.params.key);
   if (!result.ok) return res.status(400).json(result);
+
+  // <-- เพิ่ม: ส่งคำสั่งไปที่บอร์ดจริง ตามสถานะใหม่ที่ผู้ใช้เห็นบนเว็บ
+  const on = storeLightIsOn(req.params.key);
+  const cmd = heartbeat.requestLight(req.params.key, on === null ? 'toggle' : (on ? 'on' : 'off'));
+  if (!cmd.ok) console.warn(`[light] ${req.params.key}: ${cmd.message}`);
+
   res.json(result);
 });
 

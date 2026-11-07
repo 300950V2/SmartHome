@@ -1,5 +1,6 @@
 // routes/heartbeat.js
-// รับ heartbeat จากบอร์ด (Raspberry Pi / Home Assistant) และแจ้ง LINE เมื่อสัญญาณหายไป (ไฟดับ)
+// 1) รับ heartbeat + สถานะ ESP จากบอร์ด (Raspberry Pi / Home Assistant) และแจ้ง LINE เมื่อสัญญาณหาย (ไฟดับ)
+// 2) ให้บอร์ดมา "ถาม" ทุกไม่กี่วินาทีว่ามีคำสั่งเปิด/ปิดไฟค้างอยู่ไหม (POST /api/heartbeat/poll)
 //
 // ENV ที่ต้องตั้งบน Render:
 //   HEARTBEAT_TOKEN             รหัสลับ (ต้องตรงกับที่ตั้งฝั่ง Home Assistant)
@@ -10,7 +11,7 @@
 const express = require('express');
 const crypto = require('crypto');
 const store = require('../data/store');
-const { requireAuth } = require('./middleware');
+const { requireAuth, requireAuthApi } = require('./middleware');
 
 const router = express.Router();
 
@@ -19,6 +20,7 @@ const TIMEOUT_MS = (parseInt(process.env.HEARTBEAT_TIMEOUT_SEC, 10) || 180) * 10
 const CHECK_INTERVAL_MS = 30 * 1000;
 const LINE_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN || '';
 const LINE_TO = process.env.LINE_TO || '';
+const CMD_TTL_MS = 60 * 1000; // คำสั่งที่บอร์ดไม่ทำตามภายในเวลานี้ จะถูกทิ้ง
 
 // เริ่มต้นให้ lastBeat = เวลาที่เซิร์ฟเวอร์เริ่มทำงาน
 // (ถ้าเซิร์ฟเวอร์รีสตาร์ตแล้วบอร์ดยังเงียบเกินกำหนด ก็จะแจ้งเตือนตามปกติ)
@@ -27,9 +29,14 @@ const state = {
   lastInfo: null,
   offline: false,
   offlineSince: null,
-  esp: Object.create(null), // สถานะ entity ของ ESP แต่ละตัว ที่ HA ส่งมา { ชื่ออุปกรณ์: { entity_id: state } }
-  espUpdatedAt: null
+  esp: Object.create(null),      // สถานะ entity ของ ESP แต่ละตัว { ชื่ออุปกรณ์: { entity_id: state } } (ส่งทุก 1 นาที)
+  espUpdatedAt: null,
+  switches: Object.create(null), // สถานะรีเลย์ล่าสุด { entity_id: state } (ส่งทุกครั้งที่ poll สดกว่า esp)
+  switchesAt: null
 };
+
+// คำสั่งที่รอให้บอร์ดทำ: lightKey -> { target: 'on'|'off', at: เวลาที่สั่ง }
+const pending = new Map();
 
 // ---- ผูกชื่อ entity ใน HA เข้ากับค่าในระบบ (แก้ที่นี่ที่เดียว) ----
 // เซนเซอร์: เอาไปอัปเดต store.updateSensor() ให้ dashboard แสดงค่าจริง
@@ -39,7 +46,7 @@ const SENSOR_MAP = {
   bedroomTemp: 'sensor.dht_sensor_esp_temperature_indoor',      // สมมติว่า indoor = ห้องนอน
   bedroomHumidity: 'sensor.dht_sensor_esp_humidity_indoor'
 };
-// ไฟ: ตอนนี้แค่แสดงใน /status (ยังไม่เขียนลง store) ชื่อฝั่งซ้ายเป็นการเดา ยังไม่ยืนยัน
+// ไฟ: ชื่อฝั่งซ้ายคือ key เดียวกับที่หน้าเว็บใช้ ฝั่งขวาคือ switch ใน HA (การจับคู่หน้า/ห้องนั่งเล่นเป็นการเดา ยังไม่ยืนยัน)
 const LIGHT_MAP = {
   frontLight1: 'switch.light_control_esp_lamp_no1',
   frontLight2: 'switch.light_control_esp_lamp_no2',
@@ -69,7 +76,22 @@ function sanitizeEsp(raw) {
   return out;
 }
 
+// รับเฉพาะ switch.* แบบ { entity_id: state } สูงสุด 50 ตัว
+function sanitizeSwitches(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const out = Object.create(null);
+  let n = 0;
+  for (const [entityId, value] of Object.entries(raw)) {
+    if (!String(entityId).startsWith('switch.')) continue;
+    if (++n > 50) break;
+    out[String(entityId).slice(0, 100)] = String(value).slice(0, 20);
+  }
+  return out;
+}
+
+// หาสถานะ entity: ใช้ค่าจาก poll (สดกว่า) ก่อน แล้วค่อยดูจากก้อน esp
 function findState(entityId) {
+  if (entityId in state.switches) return state.switches[entityId];
   for (const entities of Object.values(state.esp)) {
     if (entityId in entities) return entities[entityId];
   }
@@ -111,11 +133,63 @@ function summarizeDevices() {
   }));
 }
 
+// ---------------------------------------------------------------------
+// สั่งไฟ: เว็บเรียก requestLight() แล้วบอร์ดจะมาเอาคำสั่งตอน poll
+// action: 'on' | 'off' | 'toggle'  (toggle = กลับด้านจากคำสั่งที่ค้างอยู่ หรือสถานะจริงล่าสุด)
+// ---------------------------------------------------------------------
+function requestLight(key, action) {
+  if (!Object.prototype.hasOwnProperty.call(LIGHT_MAP, key)) {
+    return { ok: false, message: 'ไม่รู้จักไฟตัวนี้' };
+  }
+  let target = action;
+  if (action === 'toggle') {
+    const base = pending.has(key) ? pending.get(key).target : findState(LIGHT_MAP[key]);
+    if (base !== 'on' && base !== 'off') {
+      return { ok: false, message: 'บอร์ดยังไม่รายงานสถานะไฟตัวนี้' };
+    }
+    target = base === 'on' ? 'off' : 'on';
+  }
+  if (target !== 'on' && target !== 'off') {
+    return { ok: false, message: 'state ต้องเป็น on, off หรือ toggle' };
+  }
+  pending.set(key, { target, at: Date.now() });
+  return { ok: true, target };
+}
+
+// คำสั่งที่ยังต้องทำ: ถ้าสถานะจริงตรงเป้าแล้ว หรือค้างนานเกินกำหนด ก็ลบทิ้ง
+// (ไม่มี ack แยก: ใช้สถานะจริงที่บอร์ดรายงานเป็นตัวยืนยัน และสั่งซ้ำได้ไม่เป็นไร)
+function collectCommands(now) {
+  const commands = [];
+  for (const [key, cmd] of pending) {
+    const entity = LIGHT_MAP[key];
+    if (findState(entity) === cmd.target || now - cmd.at > CMD_TTL_MS) {
+      pending.delete(key);
+      continue;
+    }
+    commands.push({ entity, action: cmd.target });
+  }
+  return commands;
+}
+
+// ---------------------------------------------------------------------
 function safeEqual(a, b) {
   const ba = Buffer.from(String(a));
   const bb = Buffer.from(String(b));
   if (ba.length !== bb.length) return false;
   return crypto.timingSafeEqual(ba, bb);
+}
+
+function checkToken(req, res) {
+  if (!TOKEN) {
+    res.status(503).json({ ok: false, error: 'HEARTBEAT_TOKEN not configured' });
+    return false;
+  }
+  const given = req.get('x-heartbeat-token') || '';
+  if (!safeEqual(given, TOKEN)) {
+    res.status(401).json({ ok: false, error: 'unauthorized' });
+    return false;
+  }
+  return true;
 }
 
 function fmtTime(ms) {
@@ -150,29 +224,12 @@ async function pushLine(text) {
   }
 }
 
-// ---- รับ heartbeat จากบอร์ด: POST /api/heartbeat ----
-router.post('/', (req, res) => {
-  if (!TOKEN) {
-    return res.status(503).json({ ok: false, error: 'HEARTBEAT_TOKEN not configured' });
-  }
-  const given = req.get('x-heartbeat-token') || '';
-  if (!safeEqual(given, TOKEN)) {
-    return res.status(401).json({ ok: false, error: 'unauthorized' });
-  }
-
-  const now = Date.now();
+// บันทึกว่าบอร์ดยังมีชีวิต (ทั้ง heartbeat และ poll นับ) และแจ้ง LINE ถ้าเพิ่งกลับมาจากออฟไลน์
+function markAlive(now) {
   const wasOffline = state.offline;
   const downMs = wasOffline ? now - state.offlineSince : 0;
 
   state.lastBeat = now;
-  const body = req.body && typeof req.body === 'object' ? req.body : null;
-  state.lastInfo = body ? { device: String(body.device || '').slice(0, 60) } : null;
-  const esp = body ? sanitizeEsp(body.esp) : null;
-  if (esp) {
-    state.esp = esp;
-    state.espUpdatedAt = now;
-    applySensors();
-  }
   state.offline = false;
   state.offlineSince = null;
 
@@ -183,8 +240,50 @@ router.post('/', (req, res) => {
       `กลับมาเมื่อ: ${fmtTime(now)}`
     );
   }
+}
+
+// ---- รับ heartbeat + สถานะ ESP จากบอร์ด: POST /api/heartbeat (ทุก 1 นาที) ----
+router.post('/', (req, res) => {
+  if (!checkToken(req, res)) return;
+
+  const now = Date.now();
+  markAlive(now);
+
+  const body = req.body && typeof req.body === 'object' ? req.body : null;
+  state.lastInfo = body ? { device: String(body.device || '').slice(0, 60) } : null;
+  const esp = body ? sanitizeEsp(body.esp) : null;
+  if (esp) {
+    state.esp = esp;
+    state.espUpdatedAt = now;
+    applySensors();
+  }
 
   res.json({ ok: true });
+});
+
+// ---- บอร์ดมาถามคำสั่ง: POST /api/heartbeat/poll (ทุก ~5 วินาที) ----
+// body:  { "switches": { "switch.xxx": "on", ... } }  สถานะรีเลย์จริงตอนนี้
+// ตอบ:   { "ok": true, "commands": [ { "entity": "switch.xxx", "action": "on" } ] }
+router.post('/poll', (req, res) => {
+  if (!checkToken(req, res)) return;
+
+  const now = Date.now();
+  markAlive(now);
+
+  const sw = req.body ? sanitizeSwitches(req.body.switches) : null;
+  if (sw) {
+    state.switches = sw;
+    state.switchesAt = now;
+  }
+
+  res.json({ ok: true, commands: collectCommands(now) });
+});
+
+// ---- สั่งไฟจากหน้าเว็บ (ต้อง login): POST /api/heartbeat/light/:key  body { "state": "on" | "off" | "toggle" } ----
+router.post('/light/:key', requireAuthApi, (req, res) => {
+  const result = requestLight(req.params.key, req.body && req.body.state);
+  if (!result.ok) return res.status(400).json(result);
+  res.json(result);
 });
 
 // ---- ดูสถานะ (ต้อง login): GET /api/heartbeat/status ----
@@ -197,6 +296,7 @@ router.get('/status', requireAuth, (req, res) => {
     info: state.lastInfo,
     espUpdatedAt: state.espUpdatedAt ? new Date(state.espUpdatedAt).toISOString() : null,
     lights: currentLights(),
+    pending: Object.fromEntries(pending),
     devices: summarizeDevices()
   });
 });
@@ -219,4 +319,4 @@ function startMonitor() {
   console.log(`✓ Heartbeat monitor started (timeout ${TIMEOUT_MS / 1000}s)`);
 }
 
-module.exports = { router, startMonitor };
+module.exports = { router, startMonitor, requestLight };
