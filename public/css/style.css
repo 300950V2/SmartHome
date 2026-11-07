@@ -398,42 +398,83 @@ a { color: inherit; text-decoration: none; }
   transform: translateX(22px);
 }
 
-.ac-temp-select {
+/* ---- AC temp picker: ปุ่ม +/- ปรับเลขที่จอ (ยังไม่ส่ง) แล้วกด "ตั้งอุณหภูมิ" ทีเดียวค่อยยิง pulse ---- */
+.ac-temp-picker {
+  margin-top: 18px;
   display: flex;
-  gap: 10px;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
 }
 
-.temp-opt {
-  flex: 1;
-  padding: 16px 10px;
-  border-radius: var(--radius-sm);
-  background: rgba(255, 255, 255, 0.04);
+.temp-picker-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 28px;
+}
+
+.temp-step-btn {
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
   border: 1.5px solid var(--glass-border);
-  text-align: center;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-primary);
+  font-size: 22px;
+  font-family: inherit;
+  line-height: 1;
   cursor: pointer;
-  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s ease, border-color 0.15s ease, transform 0.1s ease;
 }
 
-.temp-opt .deg {
-  font-size: 24px;
-  font-weight: 700;
-}
-.temp-opt .unit {
-  font-size: 11px;
-  color: var(--text-faint);
-  margin-top: 2px;
-}
-
-.temp-opt.active {
+.temp-step-btn:hover {
   background: rgba(139, 143, 248, 0.16);
   border-color: var(--accent);
-  box-shadow: 0 0 0 1px var(--accent-soft);
 }
-.temp-opt.active .deg { color: var(--accent); }
 
-.temp-opt.disabled {
-  opacity: 0.4;
-  pointer-events: none;
+.temp-step-btn:active {
+  transform: scale(0.92);
+}
+
+.temp-picker-value {
+  min-width: 100px;
+  text-align: center;
+  font-size: 30px;
+  font-weight: 700;
+  letter-spacing: -0.5px;
+  color: var(--text-primary);
+}
+
+.temp-set-btn {
+  width: 100%;
+  padding: 13px 20px;
+  border-radius: var(--radius-sm);
+  border: 1.5px solid var(--glass-border);
+  background: rgba(139, 143, 248, 0.14);
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, transform 0.1s ease;
+}
+
+.temp-set-btn:hover {
+  background: rgba(139, 143, 248, 0.22);
+  border-color: var(--accent);
+}
+
+.temp-set-btn:active {
+  transform: scale(0.98);
+}
+
+.temp-set-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 /* ---- device grid (lights) ---- */
@@ -560,4 +601,5 @@ footer.dash-footer {
   .ac-top { flex-wrap: wrap; gap: 14px; }
   .ac-power-btns { width: 100%; }
   .pulse-btn { flex: 1; }
+  .temp-picker-row { gap: 20px; }
 }

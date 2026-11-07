@@ -96,10 +96,10 @@ module.exports = {
   },
 
   // ---- devices: AC (แบบกดยิงสัญญาณ ไม่ใช่ toggle) ----
-  // action: 'power_on' | 'power_off' | 'temp_up' | 'temp_down'
+  // action: 'power_on' | 'power_off' | 'temp_18' | 'temp_20' | 'temp_22' | 'temp_24' | 'temp_26' | 'temp_28' | 'temp_30'
   // แค่บันทึกไว้โชว์บนเว็บว่า "กดอะไรไปล่าสุด" เท่านั้น ไม่ได้แปลว่าแอร์อยู่ในสถานะนั้นจริง
   recordAcAction(action, temp) {
-    const allowed = ['power_on', 'power_off', 'temp_up', 'temp_down'];
+    const allowed = ['power_on', 'power_off', 'temp_18', 'temp_20', 'temp_22', 'temp_24', 'temp_26', 'temp_28', 'temp_30'];
     if (!allowed.includes(action)) {
       return { ok: false, message: 'คำสั่งแอร์ไม่ถูกต้อง' };
     }

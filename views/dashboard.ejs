@@ -55,8 +55,8 @@
                 <%= devices.ac.lastAction ? 'กดล่าสุด: ' + (
                   devices.ac.lastAction === 'power_on' ? 'เปิด' :
                   devices.ac.lastAction === 'power_off' ? 'ปิด' :
-                  devices.ac.lastAction === 'temp_up' ? 'อุณหภูมิ 30°C' :
-                  devices.ac.lastAction === 'temp_down' ? 'อุณหภูมิ 24°C' : devices.ac.lastAction
+                  /^temp_\d+$/.test(devices.ac.lastAction) ? 'อุณหภูมิ ' + devices.ac.lastAction.replace('temp_', '') + '°C' :
+                  devices.ac.lastAction
                 ) : 'ยังไม่เคยสั่งงาน' %>
               </div>
             </div>
@@ -67,15 +67,14 @@
           </div>
         </div>
 
-        <div class="ac-temp-select">
-          <div class="temp-opt" data-temp="24">
-            <div class="deg">24°</div>
-            <div class="unit">เย็นสบาย</div>
+        <!-- ===== เลือกอุณหภูมิ: ปุ่ม +/- ปรับเลขที่ "ยังไม่ส่ง" ก่อน แล้วกด "ตั้งอุณหภูมิ" ทีเดียวค่อยยิง pulse ===== -->
+        <div class="ac-temp-picker">
+          <div class="temp-picker-row">
+            <button type="button" class="temp-step-btn" id="temp-dec" aria-label="ลดอุณหภูมิ">−</button>
+            <div class="temp-picker-value"><span id="temp-picker-deg">24</span>°C</div>
+            <button type="button" class="temp-step-btn" id="temp-inc" aria-label="เพิ่มอุณหภูมิ">+</button>
           </div>
-          <div class="temp-opt" data-temp="30">
-            <div class="deg">30°</div>
-            <div class="unit">ประหยัดไฟ</div>
-          </div>
+          <button type="button" class="temp-set-btn" id="temp-set-btn">ตั้งอุณหภูมิ <span id="temp-set-deg">24</span>°C</button>
         </div>
       </div>
     </div>

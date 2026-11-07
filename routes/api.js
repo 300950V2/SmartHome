@@ -41,14 +41,15 @@ router.post('/ac/power', requireAuthApi, (req, res) => {
   res.json(result);
 });
 
-// ควบคุมแอร์: กดปุ่มอุณหภูมิ 24 หรือ 30 (ยิง pulse temp_up/temp_down ครั้งเดียว ไม่ใช่ตั้งค่าตรงๆ)
-// body: { "temp": 24 | 30 }
+// ควบคุมแอร์: ตั้งอุณหภูมิ 18-30 องศา (เฉพาะเลขคู่) ยิง pulse temp_XX ครั้งเดียว ไม่ใช่ไต่ทีละองศา
+// body: { "temp": 18 | 20 | 22 | 24 | 26 | 28 | 30 }
+const AC_ALLOWED_TEMPS = [18, 20, 22, 24, 26, 28, 30];
 router.post('/ac/temp', requireAuthApi, (req, res) => {
   const temp = parseInt(req.body && req.body.temp, 10);
-  if (temp !== 24 && temp !== 30) {
-    return res.status(400).json({ ok: false, message: 'เลือกได้เฉพาะ 24 หรือ 30 องศาเท่านั้น' });
+  if (!AC_ALLOWED_TEMPS.includes(temp)) {
+    return res.status(400).json({ ok: false, message: 'เลือกได้เฉพาะ 18, 20, 22, 24, 26, 28 หรือ 30 องศาเท่านั้น' });
   }
-  const action = temp === 24 ? 'temp_down' : 'temp_up';
+  const action = `temp_${temp}`;
   const result = heartbeat.requestAcAction(action);
   if (!result.ok) return res.status(400).json(result);
   res.json(result);

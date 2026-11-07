@@ -1,16 +1,21 @@
 // routes/heartbeat.js
 // 1) รับ heartbeat + สถานะ ESP จากบอร์ด (Raspberry Pi / Home Assistant) และแจ้ง LINE เมื่อสัญญาณหาย (ไฟดับ)
 // 2) ให้บอร์ดมา "ถาม" ทุกไม่กี่วินาทีว่ามีคำสั่งเปิด/ปิดไฟ หรือคำสั่งแอร์ (pulse) ค้างอยู่ไหม (POST /api/heartbeat/poll)
+// 3) สถานะ online/offline เก็บไว้ที่ Supabase (ตาราง heartbeat_state) ด้วย เพื่อให้รอดจากการที่ Render
+//    sleep/restart แล้ว state ในแรมหาย — กันไม่ให้แจ้ง LINE ซ้ำๆ ทุกครั้งที่เซิร์ฟเวอร์ตื่นใหม่
 //
 // ENV ที่ต้องตั้งบน Render:
 //   HEARTBEAT_TOKEN             รหัสลับ (ต้องตรงกับที่ตั้งฝั่ง Home Assistant)
 //   LINE_CHANNEL_ACCESS_TOKEN   Channel access token (long-lived) จาก LINE Developers
 //   LINE_TO                     userId หรือ groupId ที่จะให้ส่งแจ้งเตือนไปหา
 //   HEARTBEAT_TIMEOUT_SEC       (ไม่บังคับ) ขาดสัญญาณกี่วินาทีถึงแจ้ง ค่าเริ่มต้น 180
+//   SUPABASE_URL                (ไม่บังคับ) ถ้าไม่ตั้ง จะใช้ state ในแรมอย่างเดียวเหมือนเดิม
+//   SUPABASE_SERVICE_KEY        (ไม่บังคับ) คู่กับ SUPABASE_URL
 
 const express = require('express');
 const crypto = require('crypto');
 const store = require('../data/store');
+const { supabase } = require('../data/supabase');
 const { requireAuth, requireAuthApi } = require('./middleware');
 
 const router = express.Router();
@@ -24,7 +29,8 @@ const CMD_TTL_MS = 60 * 1000;     // คำสั่งไฟที่บอร�
 const AC_CMD_TTL_MS = 30 * 1000;  // คำสั่งแอร์ (pulse) ถ้าค้างนานเกินนี้โดยไม่มีบอร์ดมาเอาไป ก็ทิ้ง
 
 // เริ่มต้นให้ lastBeat = เวลาที่เซิร์ฟเวอร์เริ่มทำงาน
-// (ถ้าเซิร์ฟเวอร์รีสตาร์ตแล้วบอร์ดยังเงียบเกินกำหนด ก็จะแจ้งเตือนตามปกติ)
+// (ค่าพวกนี้คือ cache ในแรม ใช้ตอบ /status เร็วๆ — ความจริงที่ยืนยันแล้วอยู่ที่ Supabase
+//  ถ้ามีการตั้งค่าไว้ จะโหลดจาก Supabase มาทับตอนสตาร์ตเซิร์ฟเวอร์ใน loadStateFromDB())
 const state = {
   lastBeat: Date.now(),
   lastInfo: null,
@@ -40,7 +46,7 @@ const state = {
 const pending = new Map();
 
 // คำสั่งแอร์ที่รอให้บอร์ดยิง (pulse ครั้งเดียว แล้วลบทิ้ง ไม่ต้องรอเทียบ state):
-// คิวเดียว เก็บตามลำดับ { action: 'power_on'|'power_off'|'temp_up'|'temp_down', at }
+// คิวเดียว เก็บตามลำดับ { action: 'power_on'|'power_off'|'temp_18'...'temp_30', at }
 let acQueue = [];
 
 // ---- ผูกชื่อ entity ใน HA เข้ากับค่าในระบบ (แก้ที่นี่ที่เดียว) ----
@@ -60,12 +66,21 @@ const LIGHT_MAP = {
 };
 
 // แอร์: คำสั่งฝั่งเว็บ -> script entity_id ใน HA (กดแล้วจบ ไม่มี state ค้าง)
+// temp_XX = ตั้งอุณหภูมิตรงๆ (สอนสัญญาณ IR ไว้ที่ 18-30 องศา ทีละ 2 องศา)
 const AC_SCRIPT_MAP = {
   power_on: 'script.power_on',
   power_off: 'script.power_off',
-  temp_up: 'script.temp_up',
-  temp_down: 'script.temp_down'
+  temp_18: 'script.temp_18',
+  temp_20: 'script.temp_20',
+  temp_22: 'script.temp_22',
+  temp_24: 'script.temp_24',
+  temp_26: 'script.temp_26',
+  temp_28: 'script.temp_28',
+  temp_30: 'script.temp_30'
 };
+
+// อุณหภูมิที่รองรับ (ใช้เช็ค input จาก API)
+const AC_ALLOWED_TEMPS = [18, 20, 22, 24, 26, 28, 30];
 
 // ค่าที่ HA ใช้บอกว่าอุปกรณ์ไม่ตอบสนอง (ESP ดับ/หลุด Wi-Fi)
 const OFFLINE_STATES = new Set(['unavailable', 'unknown', '']);
@@ -188,7 +203,7 @@ function collectLightCommands(now) {
 // สั่งแอร์: เว็บเรียก requestAcAction() แล้วบอร์ดจะมาเอาคำสั่งตอน poll
 // เป็น "pulse" ล้วนๆ ไม่มี state ให้เทียบ เลยต่างไฟคือ: บอร์ด poll มาเจอครั้งเดียว
 // ก็ถือว่ายิงไปแล้ว ลบออกจากคิวทันที (ไม่ส่งซ้ำ)
-// action: 'power_on' | 'power_off' | 'temp_up' | 'temp_down'
+// action: 'power_on' | 'power_off' | 'temp_18' | 'temp_20' | ... | 'temp_30'
 // ---------------------------------------------------------------------
 function requestAcAction(action) {
   if (!Object.prototype.hasOwnProperty.call(AC_SCRIPT_MAP, action)) {
@@ -199,7 +214,9 @@ function requestAcAction(action) {
   acQueue = acQueue.filter(c => now - c.at <= AC_CMD_TTL_MS);
   acQueue.push({ action, at: now });
 
-  let temp;
+  // ถ้าเป็นคำสั่งตั้งอุณหภูมิ (temp_18 ... temp_30) ให้ดึงเลขออกมาบันทึกด้วย
+  const match = /^temp_(\d+)$/.exec(action);
+  const temp = match ? parseInt(match[1], 10) : undefined;
   const result = store.recordAcAction(action, temp);
   return { ok: true, action, ac: result.ac };
 }
@@ -265,6 +282,63 @@ async function pushLine(text) {
   }
 }
 
+// ---------------------------------------------------------------------
+// Supabase persistence: เก็บ state (lastBeat/offline/offlineSince) ไว้ที่ตาราง
+// heartbeat_state (แถวเดียว id=1) ให้รอดจาก Render sleep/restart
+// ถ้าไม่ได้ตั้ง SUPABASE_URL/SUPABASE_SERVICE_KEY จะข้ามส่วนนี้ไปเงียบๆ
+// แล้วทำงานด้วย state ในแรมอย่างเดียวเหมือนโค้ดเดิม
+// ---------------------------------------------------------------------
+
+// โหลด state ล่าสุดจาก Supabase มาทับค่าที่ตั้งต้นในแรม ตอนเซิร์ฟเวอร์เพิ่งสตาร์ต
+// สำคัญมาก: ถ้าไม่โหลด ทุกครั้งที่ Render sleep/wake จะเห็น lastBeat = "ตอนนี้" เสมอ
+// (เข้าใจผิดว่าบอร์ดเพิ่งส่งสัญญาณมา ทั้งที่จริงอาจขาดการติดต่อมานานแล้ว)
+async function loadStateFromDB() {
+  if (!supabase) return;
+  try {
+    const { data, error } = await supabase
+      .from('heartbeat_state')
+      .select('last_beat, offline, offline_since')
+      .eq('id', 1)
+      .single();
+    if (error) {
+      console.error('[heartbeat] โหลด state จาก Supabase ไม่สำเร็จ:', error.message);
+      return;
+    }
+    if (data) {
+      state.lastBeat = new Date(data.last_beat).getTime();
+      state.offline = data.offline;
+      state.offlineSince = data.offline_since ? new Date(data.offline_since).getTime() : null;
+      console.log('[heartbeat] โหลด state จาก Supabase สำเร็จ:', {
+        lastBeat: fmtTime(state.lastBeat),
+        offline: state.offline
+      });
+    }
+  } catch (err) {
+    console.error('[heartbeat] loadStateFromDB error:', err.message);
+  }
+}
+
+// เขียน state ปัจจุบันกลับไปที่ Supabase (เรียกทุกครั้งที่ state เปลี่ยนจริงๆ ไม่ใช่ทุก heartbeat
+// เพื่อประหยัด quota — ดู markAlive/startMonitor ว่าเรียกตอนไหนบ้าง)
+async function saveStateToDB() {
+  if (!supabase) return;
+  try {
+    const { error } = await supabase
+      .from('heartbeat_state')
+      .update({
+        last_beat: new Date(state.lastBeat).toISOString(),
+        offline: state.offline,
+        offline_since: state.offlineSince ? new Date(state.offlineSince).toISOString() : null
+      })
+      .eq('id', 1);
+    if (error) {
+      console.error('[heartbeat] บันทึก state ไป Supabase ไม่สำเร็จ:', error.message);
+    }
+  } catch (err) {
+    console.error('[heartbeat] saveStateToDB error:', err.message);
+  }
+}
+
 // บันทึกว่าบอร์ดยังมีชีวิต (ทั้ง heartbeat และ poll นับ) และแจ้ง LINE ถ้าเพิ่งกลับมาจากออฟไลน์
 function markAlive(now) {
   const wasOffline = state.offline;
@@ -280,6 +354,12 @@ function markAlive(now) {
       `ขาดการติดต่อไปประมาณ ${fmtDuration(downMs)}\n` +
       `กลับมาเมื่อ: ${fmtTime(now)}`
     );
+    // offline -> online คือการเปลี่ยนแปลงสำคัญ บันทึกทันที
+    saveStateToDB();
+  } else {
+    // กรณีปกติ (ไม่ได้เพิ่งเปลี่ยนสถานะ) ไม่ต้องรอ await เพื่อไม่ให้ response ช้า
+    // แค่เขียน lastBeat ล่าสุดกลับไปเรื่อยๆ กัน Render restart แล้ว state เก่าเกินไป
+    saveStateToDB();
   }
 }
 
@@ -342,26 +422,31 @@ router.get('/status', requireAuth, (req, res) => {
     lights: currentLights(),
     pending: Object.fromEntries(pending),
     acPending: acQueue.map(c => c.action),
-    devices: summarizeDevices()
+    devices: summarizeDevices(),
+    persistedToDB: !!supabase
   });
 });
 
 // ---- ตัวเช็กว่าบอร์ดเงียบเกินกำหนดหรือยัง ----
 function startMonitor() {
-  setInterval(() => {
-    const silentMs = Date.now() - state.lastBeat;
-    if (!state.offline && silentMs > TIMEOUT_MS) {
-      state.offline = true;
-      state.offlineSince = state.lastBeat;
-      console.warn('[heartbeat] บอร์ดขาดการติดต่อ');
-      pushLine(
-        `⚠️ บอร์ดขาดการติดต่อ (สงสัยไฟดับ)\n` +
-        `ไม่ได้รับสัญญาณมาแล้ว ${fmtDuration(silentMs)}\n` +
-        `สัญญาณล่าสุด: ${fmtTime(state.lastBeat)}`
-      );
-    }
-  }, CHECK_INTERVAL_MS);
-  console.log(`✓ Heartbeat monitor started (timeout ${TIMEOUT_MS / 1000}s)`);
+  // โหลด state จาก Supabase ก่อนเริ่มตรวจ (สำคัญตอนเซิร์ฟเวอร์เพิ่งตื่นจาก sleep)
+  loadStateFromDB().then(() => {
+    setInterval(() => {
+      const silentMs = Date.now() - state.lastBeat;
+      if (!state.offline && silentMs > TIMEOUT_MS) {
+        state.offline = true;
+        state.offlineSince = state.lastBeat;
+        console.warn('[heartbeat] บอร์ดขาดการติดต่อ');
+        pushLine(
+          `⚠️ บอร์ดขาดการติดต่อ (สงสัยไฟดับ)\n` +
+          `ไม่ได้รับสัญญาณมาแล้ว ${fmtDuration(silentMs)}\n` +
+          `สัญญาณล่าสุด: ${fmtTime(state.lastBeat)}`
+        );
+        saveStateToDB(); // บันทึกทันทีตอนเปลี่ยนเป็น offline
+      }
+    }, CHECK_INTERVAL_MS);
+  });
+  console.log(`✓ Heartbeat monitor started (timeout ${TIMEOUT_MS / 1000}s, persist: ${supabase ? 'Supabase' : 'in-memory only'})`);
 }
 
 module.exports = { router, startMonitor, requestLight, requestAcAction };

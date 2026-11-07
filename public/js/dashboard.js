@@ -33,19 +33,15 @@ function renderSensor(sensor) {
 const acStatus = document.getElementById('ac-status');
 const acPowerOnBtn = document.getElementById('ac-power-on');
 const acPowerOffBtn = document.getElementById('ac-power-off');
-const tempOpts = document.querySelectorAll('.temp-opt');
-
-const AC_ACTION_LABEL = {
-  power_on: 'เปิด',
-  power_off: 'ปิด',
-  temp_up: 'อุณหภูมิ 30°C',
-  temp_down: 'อุณหภูมิ 24°C'
-};
 
 // แค่โชว์ "กดอะไรไปล่าสุด" เป็นฟีดแบ็กชั่วคราว ไม่ใช่สถานะจริงของแอร์ (ไม่มี feedback จาก IR)
 function showAcLastAction(action) {
-  if (acStatus && AC_ACTION_LABEL[action]) {
-    acStatus.textContent = 'กดล่าสุด: ' + AC_ACTION_LABEL[action];
+  if (!acStatus) return;
+  if (action === 'power_on') acStatus.textContent = 'กดล่าสุด: เปิด';
+  else if (action === 'power_off') acStatus.textContent = 'กดล่าสุด: ปิด';
+  else {
+    const m = /^temp_(\d+)$/.exec(action);
+    if (m) acStatus.textContent = 'กดล่าสุด: อุณหภูมิ ' + m[1] + '°C';
   }
 }
 
@@ -53,7 +49,7 @@ async function sendAcAction(action, extra) {
   const result = await postJSON('/api/ac/' + (action === 'power_on' || action === 'power_off' ? 'power' : 'temp'),
     action === 'power_on' ? { action: 'power_on' } :
     action === 'power_off' ? { action: 'power_off' } :
-    extra // { temp: 24 } หรือ { temp: 30 }
+    extra // { temp: 18..30 }
   );
   if (result.ok) showAcLastAction(action);
   return result;
@@ -66,17 +62,48 @@ if (acPowerOffBtn) {
   acPowerOffBtn.addEventListener('click', () => sendAcAction('power_off'));
 }
 
-tempOpts.forEach(opt => {
-  opt.addEventListener('click', async () => {
-    const temp = parseInt(opt.dataset.temp, 10);
-    const action = temp === 24 ? 'temp_down' : 'temp_up';
-    const result = await sendAcAction(action, { temp });
-    if (result.ok) {
-      tempOpts.forEach(o => o.classList.remove('active'));
-      opt.classList.add('active');
+// ---------- ตัวเลือกอุณหภูมิแบบ +/- : ปรับเลขที่จอก่อน (ยังไม่ส่งอะไร) แล้วกด "ตั้งอุณหภูมิ" ทีเดียวค่อยยิง pulse ----------
+const AC_TEMP_MIN = 18;
+const AC_TEMP_MAX = 30;
+const AC_TEMP_STEP = 2;
+
+const tempDecBtn = document.getElementById('temp-dec');
+const tempIncBtn = document.getElementById('temp-inc');
+const tempPickerDeg = document.getElementById('temp-picker-deg');
+const tempSetBtn = document.getElementById('temp-set-btn');
+const tempSetDeg = document.getElementById('temp-set-deg');
+
+let pickedTemp = 24; // ค่าตั้งต้นที่โชว์บนจอ ยังไม่ได้ส่งอะไรจนกว่าจะกดปุ่ม "ตั้งอุณหภูมิ"
+
+function renderPickedTemp() {
+  if (tempPickerDeg) tempPickerDeg.textContent = pickedTemp;
+  if (tempSetDeg) tempSetDeg.textContent = pickedTemp;
+}
+
+if (tempDecBtn) {
+  tempDecBtn.addEventListener('click', () => {
+    pickedTemp = Math.max(AC_TEMP_MIN, pickedTemp - AC_TEMP_STEP);
+    renderPickedTemp();
+  });
+}
+if (tempIncBtn) {
+  tempIncBtn.addEventListener('click', () => {
+    pickedTemp = Math.min(AC_TEMP_MAX, pickedTemp + AC_TEMP_STEP);
+    renderPickedTemp();
+  });
+}
+if (tempSetBtn) {
+  tempSetBtn.addEventListener('click', async () => {
+    tempSetBtn.disabled = true;
+    try {
+      const action = 'temp_' + pickedTemp;
+      await sendAcAction(action, { temp: pickedTemp });
+    } finally {
+      tempSetBtn.disabled = false;
     }
   });
-});
+}
+renderPickedTemp();
 
 // ---------- light devices (toggle cards) ----------
 document.querySelectorAll('.device-card').forEach(card => {
