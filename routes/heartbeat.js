@@ -9,6 +9,7 @@
 
 const express = require('express');
 const crypto = require('crypto');
+const store = require('../data/store');
 const { requireAuth } = require('./middleware');
 
 const router = express.Router();
@@ -30,6 +31,22 @@ const state = {
   espUpdatedAt: null
 };
 
+// ---- ผูกชื่อ entity ใน HA เข้ากับค่าในระบบ (แก้ที่นี่ที่เดียว) ----
+// เซนเซอร์: เอาไปอัปเดต store.updateSensor() ให้ dashboard แสดงค่าจริง
+const SENSOR_MAP = {
+  outdoorTemp: 'sensor.dht_sensor_esp_temperature_outdoor',
+  outdoorHumidity: 'sensor.dht_sensor_esp_humidity_outdoor',
+  bedroomTemp: 'sensor.dht_sensor_esp_temperature_indoor',      // สมมติว่า indoor = ห้องนอน
+  bedroomHumidity: 'sensor.dht_sensor_esp_humidity_indoor'
+};
+// ไฟ: ตอนนี้แค่แสดงใน /status (ยังไม่เขียนลง store) ชื่อฝั่งซ้ายเป็นการเดา ยังไม่ยืนยัน
+const LIGHT_MAP = {
+  frontLight1: 'switch.light_control_esp_lamp_no1',
+  frontLight2: 'switch.light_control_esp_lamp_no2',
+  livingLight1: 'switch.light_control_esp_2_lamp_no1',
+  livingLight2: 'switch.light_control_esp_2_lamp_no2'
+};
+
 // ค่าที่ HA ใช้บอกว่าอุปกรณ์ไม่ตอบสนอง (ESP ดับ/หลุด Wi-Fi)
 const OFFLINE_STATES = new Set(['unavailable', 'unknown', '']);
 
@@ -48,6 +65,39 @@ function sanitizeEsp(raw) {
       clean[String(entityId).slice(0, 100)] = String(value).slice(0, 100);
     }
     out[String(devName).slice(0, 60)] = clean;
+  }
+  return out;
+}
+
+function findState(entityId) {
+  for (const entities of Object.values(state.esp)) {
+    if (entityId in entities) return entities[entityId];
+  }
+  return undefined;
+}
+
+// เอาค่าเซนเซอร์จาก HA ไปอัปเดตใน store (ข้ามค่าที่เป็น unavailable / ไม่ใช่ตัวเลข)
+function applySensors() {
+  const update = {};
+  for (const [key, entityId] of Object.entries(SENSOR_MAP)) {
+    const raw = findState(entityId);
+    const num = Number(raw);
+    if (raw !== undefined && raw !== '' && Number.isFinite(num)) {
+      update[key] = Math.round(num * 10) / 10;
+    }
+  }
+  if (Object.keys(update).length === 0) return;
+  try {
+    store.updateSensor(update);
+  } catch (err) {
+    console.error('[heartbeat] updateSensor error:', err.message);
+  }
+}
+
+function currentLights() {
+  const out = {};
+  for (const [key, entityId] of Object.entries(LIGHT_MAP)) {
+    out[key] = findState(entityId) || null;
   }
   return out;
 }
@@ -121,6 +171,7 @@ router.post('/', (req, res) => {
   if (esp) {
     state.esp = esp;
     state.espUpdatedAt = now;
+    applySensors();
   }
   state.offline = false;
   state.offlineSince = null;
@@ -145,6 +196,7 @@ router.get('/status', requireAuth, (req, res) => {
     timeoutSec: TIMEOUT_MS / 1000,
     info: state.lastInfo,
     espUpdatedAt: state.espUpdatedAt ? new Date(state.espUpdatedAt).toISOString() : null,
+    lights: currentLights(),
     devices: summarizeDevices()
   });
 });
