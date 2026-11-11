@@ -1,0 +1,123 @@
+/* usage.css — สไตล์ของส่วน "การใช้ไฟย้อนหลัง" (ตัวเลขสรุป + ปุ่มเลือกช่วง + กราฟ)
+   ใช้ตัวแปรสีจาก style.css (--accent, --glass-border, --text-*) ถ้าไม่มีจะใช้ค่าสำรองตามที่ระบุไว้ในวงเล็บ
+   วางไฟล์นี้ไว้ที่ public/css/usage.css แล้ว dashboard.ejs จะโหลดต่อจาก style.css */
+
+.usage-card {
+  padding: 18px 16px 14px;
+}
+
+/* ---------- ตัวเลขสรุป ---------- */
+.usage-stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.usage-stat {
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.08));
+  min-width: 0;
+}
+
+/* การ์ด "วันนี้" เด่นกว่าใบอื่น */
+.usage-stat-main {
+  background: linear-gradient(135deg, rgba(139, 143, 248, 0.30), rgba(139, 143, 248, 0.08));
+  border-color: rgba(139, 143, 248, 0.45);
+}
+
+.usage-stat-label {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 4px;
+  font-size: 12px;
+  color: var(--text-secondary, rgba(245, 246, 250, 0.65));
+}
+
+.usage-stat-sub {
+  font-size: 11px;
+  color: var(--text-faint, rgba(245, 246, 250, 0.45));
+}
+
+.usage-stat-value {
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1.15;
+  color: var(--text-primary, #f5f6fa);
+  font-variant-numeric: tabular-nums;
+}
+
+.usage-stat-value small {
+  margin-left: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary, rgba(245, 246, 250, 0.65));
+}
+
+/* ---------- ปุ่มเลือกช่วงเวลา (segmented) ---------- */
+.usage-range {
+  display: inline-flex;
+  gap: 4px;
+  padding: 4px;
+  margin-bottom: 14px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.08));
+}
+
+.usage-range-btn {
+  padding: 6px 16px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-secondary, rgba(245, 246, 250, 0.65));
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: background 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.usage-range-btn:hover {
+  color: var(--text-primary, #f5f6fa);
+}
+
+.usage-range-btn:focus-visible {
+  outline: 2px solid var(--accent, #8b8ff8);
+  outline-offset: 2px;
+}
+
+.usage-range-btn.is-active {
+  background: rgba(139, 143, 248, 0.28);
+  color: var(--text-primary, #f5f6fa);
+  box-shadow: inset 0 0 0 1px rgba(139, 143, 248, 0.55);
+}
+
+/* ---------- กราฟ ---------- */
+/* กำหนดความสูงให้กล่องครอบ (Chart.js ตั้ง maintainAspectRatio: false) กราฟจึงไม่ยืดตามความกว้างจอ */
+.usage-chart-wrap {
+  position: relative;
+  width: 100%;
+  height: 220px;
+}
+
+.usage-empty {
+  padding: 28px 0;
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-faint, rgba(245, 246, 250, 0.45));
+}
+
+/* ---------- จอกว้าง ---------- */
+@media (min-width: 640px) {
+  .usage-card { padding: 22px 22px 18px; }
+  .usage-stats { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .usage-chart-wrap { height: 260px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .usage-range-btn { transition: none; }
+}
