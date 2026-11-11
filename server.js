@@ -55,6 +55,7 @@ app.get('/', requireAuth, (req, res) => {
   res.render('dashboard', {
     sensor: db.sensor,
     devices: db.devices,
+    pzem: db.pzem,   // <-- เพิ่ม: dashboard.ejs ใช้ pzem.voltage/current/... ต้องส่งเข้ามาด้วย ไม่งั้น ReferenceError
     username: req.session.username
   });
 });
