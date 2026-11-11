@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="th">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
@@ -7,6 +8,7 @@
   <link rel="stylesheet" href="/css/style.css">
   <link rel="stylesheet" href="/css/usage.css">
 </head>
+
 <body>
   <div class="dash-wrap">
 
@@ -15,7 +17,8 @@
         <div class="dash-logo">🏠</div>
         <div>
           <div class="dash-title">Smart Home</div>
-          <div class="dash-subtitle">สวัสดี, <%= username %></div>
+          <div class="dash-subtitle">สวัสดี, <%= username %>
+          </div>
         </div>
       </div>
       <div class="header-actions">
@@ -30,16 +33,25 @@
     <div class="sensor-grid">
       <div class="sensor-card glass">
         <div class="sensor-label">🌤️ ภายนอก</div>
-        <div class="sensor-temp"><span id="outdoor-temp"><%= sensor.outdoor.temp !== null ? sensor.outdoor.temp.toFixed(1) : '--' %></span><span>°C</span></div>
-        <div class="sensor-humidity">💧 ความชื้น <span id="outdoor-humidity"><%= sensor.outdoor.humidity !== null ? Math.round(sensor.outdoor.humidity) : '--' %></span>%</div>
+        <div class="sensor-temp"><span id="outdoor-temp">
+            <%= sensor.outdoor.temp !==null ? sensor.outdoor.temp.toFixed(1) : '--' %>
+          </span><span>°C</span></div>
+        <div class="sensor-humidity">💧 ความชื้น <span id="outdoor-humidity">
+            <%= sensor.outdoor.humidity !==null ? Math.round(sensor.outdoor.humidity) : '--' %>
+          </span>%</div>
       </div>
       <div class="sensor-card glass">
         <div class="sensor-label">🛏️ ห้องนอน</div>
-        <div class="sensor-temp"><span id="bedroom-temp"><%= sensor.bedroom.temp !== null ? sensor.bedroom.temp.toFixed(1) : '--' %></span><span>°C</span></div>
-        <div class="sensor-humidity">💧 ความชื้น <span id="bedroom-humidity"><%= sensor.bedroom.humidity !== null ? Math.round(sensor.bedroom.humidity) : '--' %></span>%</div>
+        <div class="sensor-temp"><span id="bedroom-temp">
+            <%= sensor.bedroom.temp !==null ? sensor.bedroom.temp.toFixed(1) : '--' %>
+          </span><span>°C</span></div>
+        <div class="sensor-humidity">💧 ความชื้น <span id="bedroom-humidity">
+            <%= sensor.bedroom.humidity !==null ? Math.round(sensor.bedroom.humidity) : '--' %>
+          </span>%</div>
       </div>
       <div class="sensor-updated" id="last-update">
-        <%= sensor.lastUpdate ? 'อัปเดตล่าสุด ' + new Date(sensor.lastUpdate).toLocaleString('th-TH') : 'ยังไม่มีข้อมูลจากเซ็นเซอร์' %>
+        <%= sensor.lastUpdate ? 'อัปเดตล่าสุด ' + new Date(sensor.lastUpdate).toLocaleString('th-TH')
+          : 'ยังไม่มีข้อมูลจากเซ็นเซอร์' %>
       </div>
     </div>
 
@@ -49,27 +61,40 @@
       <div class="pzem-card glass">
         <div class="pzem-row">
           <span class="pzem-label">⚡ Voltage</span>
-          <span class="pzem-value" id="pzem-voltage"><%= pzem && pzem.voltage !== null && pzem.voltage !== undefined ? pzem.voltage.toFixed(1) : '--' %> V</span>
+          <span class="pzem-value" id="pzem-voltage">
+            <%= pzem && pzem.voltage !==null && pzem.voltage !==undefined ? pzem.voltage.toFixed(1) : '--' %> V
+          </span>
         </div>
         <div class="pzem-row">
           <span class="pzem-label">〰️ Current</span>
-          <span class="pzem-value" id="pzem-current"><%= pzem && pzem.current !== null && pzem.current !== undefined ? pzem.current.toFixed(3) : '--' %> A</span>
+          <span class="pzem-value" id="pzem-current">
+            <%= pzem && pzem.current !==null && pzem.current !==undefined ? pzem.current.toFixed(3) : '--' %> A
+          </span>
         </div>
         <div class="pzem-row">
           <span class="pzem-label">🔌 Power</span>
-          <span class="pzem-value" id="pzem-power"><%= pzem && pzem.power !== null && pzem.power !== undefined ? pzem.power.toFixed(2) : '--' %> W</span>
+          <span class="pzem-value" id="pzem-power">
+            <%= pzem && pzem.power !==null && pzem.power !==undefined ? pzem.power.toFixed(2) : '--' %> W
+          </span>
         </div>
         <div class="pzem-row">
           <span class="pzem-label">🔋 Energy</span>
-          <span class="pzem-value" id="pzem-energy"><%= pzem && pzem.energy !== null && pzem.energy !== undefined ? pzem.energy.toFixed(0) : '--' %> Wh</span>
+          <span class="pzem-value" id="pzem-energy">
+            <%= pzem && pzem.energy !==null && pzem.energy !==undefined ? pzem.energy.toFixed(0) : '--' %> Wh
+          </span>
         </div>
         <div class="pzem-row">
           <span class="pzem-label">〰️ Frequency</span>
-          <span class="pzem-value" id="pzem-frequency"><%= pzem && pzem.frequency !== null && pzem.frequency !== undefined ? pzem.frequency.toFixed(1) : '--' %> Hz</span>
+          <span class="pzem-value" id="pzem-frequency">
+            <%= pzem && pzem.frequency !==null && pzem.frequency !==undefined ? pzem.frequency.toFixed(1) : '--' %> Hz
+          </span>
         </div>
         <div class="pzem-row">
           <span class="pzem-label">📐 Power Factor</span>
-          <span class="pzem-value" id="pzem-power-factor"><%= pzem && pzem.powerFactor !== null && pzem.powerFactor !== undefined ? pzem.powerFactor.toFixed(2) : '--' %></span>
+          <span class="pzem-value" id="pzem-power-factor">
+            <%= pzem && pzem.powerFactor !==null && pzem.powerFactor !==undefined ? pzem.powerFactor.toFixed(2) : '--'
+              %>
+          </span>
         </div>
       </div>
     </div>
@@ -133,12 +158,9 @@
             <div>
               <div class="ac-name">แอร์ห้องนอน</div>
               <div class="ac-status" id="ac-status">
-                <%= devices.ac.lastAction ? 'กดล่าสุด: ' + (
-                  devices.ac.lastAction === 'power_on' ? 'เปิด' :
-                  devices.ac.lastAction === 'power_off' ? 'ปิด' :
-                  /^temp_\d+$/.test(devices.ac.lastAction) ? 'อุณหภูมิ ' + devices.ac.lastAction.replace('temp_', '') + '°C' :
-                  devices.ac.lastAction
-                ) : 'ยังไม่เคยสั่งงาน' %>
+                <%= devices.ac.lastAction ? 'กดล่าสุด: ' + ( devices.ac.lastAction==='power_on' ? 'เปิด' :
+                  devices.ac.lastAction==='power_off' ? 'ปิด' : /^temp_\d+$/.test(devices.ac.lastAction) ? 'อุณหภูมิ ' +
+                  devices.ac.lastAction.replace('temp_', '' ) + '°C' : devices.ac.lastAction ) : 'ยังไม่เคยสั่งงาน' %>
               </div>
             </div>
           </div>
@@ -155,7 +177,8 @@
             <div class="temp-picker-value"><span id="temp-picker-deg">24</span>°C</div>
             <button type="button" class="temp-step-btn" id="temp-inc" aria-label="เพิ่มอุณหภูมิ">+</button>
           </div>
-          <button type="button" class="temp-set-btn" id="temp-set-btn">ตั้งอุณหภูมิ <span id="temp-set-deg">24</span>°C</button>
+          <button type="button" class="temp-set-btn" id="temp-set-btn">ตั้งอุณหภูมิ <span
+              id="temp-set-deg">24</span>°C</button>
         </div>
       </div>
     </div>
@@ -170,7 +193,9 @@
           </div>
           <div>
             <div class="device-name">ไฟหน้าบ้าน 1</div>
-            <div class="device-status"><%= devices.frontLight1 ? 'เปิดอยู่' : 'ปิดอยู่' %></div>
+            <div class="device-status">
+              <%= devices.frontLight1 ? 'เปิดอยู่' : 'ปิดอยู่' %>
+            </div>
           </div>
         </div>
         <div class="device-card glass <%= devices.frontLight2 ? 'on' : '' %>" data-key="frontLight2">
@@ -179,7 +204,9 @@
           </div>
           <div>
             <div class="device-name">ไฟหน้าบ้าน 2</div>
-            <div class="device-status"><%= devices.frontLight2 ? 'เปิดอยู่' : 'ปิดอยู่' %></div>
+            <div class="device-status">
+              <%= devices.frontLight2 ? 'เปิดอยู่' : 'ปิดอยู่' %>
+            </div>
           </div>
         </div>
       </div>
@@ -195,7 +222,9 @@
           </div>
           <div>
             <div class="device-name">ไฟห้องนั่งเล่น 1</div>
-            <div class="device-status"><%= devices.livingLight1 ? 'เปิดอยู่' : 'ปิดอยู่' %></div>
+            <div class="device-status">
+              <%= devices.livingLight1 ? 'เปิดอยู่' : 'ปิดอยู่' %>
+            </div>
           </div>
         </div>
         <div class="device-card glass <%= devices.livingLight2 ? 'on' : '' %>" data-key="livingLight2">
@@ -204,7 +233,9 @@
           </div>
           <div>
             <div class="device-name">ไฟห้องนั่งเล่น 2</div>
-            <div class="device-status"><%= devices.livingLight2 ? 'เปิดอยู่' : 'ปิดอยู่' %></div>
+            <div class="device-status">
+              <%= devices.livingLight2 ? 'เปิดอยู่' : 'ปิดอยู่' %>
+            </div>
           </div>
         </div>
       </div>
@@ -214,6 +245,8 @@
   </div>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
   <script src="/js/dashboard.js"></script>
 </body>
+
 </html>
