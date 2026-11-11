@@ -31,7 +31,7 @@ const LINE_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN || '';
 const LINE_TO = process.env.LINE_TO || '';
 const CMD_TTL_MS = 60 * 1000;     // คำสั่งไฟที่บอร์ดไม่ทำตามภายในเวลานี้ จะถูกทิ้ง
 const AC_CMD_TTL_MS = 30 * 1000;  // คำสั่งแอร์ (pulse) ถ้าค้างนานเกินนี้โดยไม่มีบอร์ดมาเอาไป ก็ทิ้ง
-const RELAY_PULSE_MS = 500;       // <-- เพิ่ม: ระยะเวลาที่สั่ง relay ให้ "on" ก่อนจะสั่ง "off" ตามอัตโนมัติ
+const RELAY_PULSE_MS = 500;       // (ไม่ได้ใช้ที่เซิร์ฟเวอร์แล้ว: ความยาวพัลส์ตั้งด้วย delay ในออโตเมชันของ HA — เก็บไว้เป็นค่าอ้างอิง)
 const RELAY_CMD_TTL_MS = 30 * 1000; // <-- เพิ่ม: คำสั่ง relay ถ้าค้างนานเกินนี้โดยไม่มีบอร์ดมาเอาไป ก็ทิ้ง
 
 // เริ่มต้นให้ lastBeat = เวลาที่เซิร์ฟเวอร์เริ่มทำงาน
@@ -319,7 +319,10 @@ function requestRelayPulse(key) {
   // กันคิวบวมถ้าบอร์ดหลุดไปนาน: ตัดคำสั่งเก่าที่ค้างเกิน TTL ออกก่อน
   relayQueue = relayQueue.filter(c => now - c.at <= RELAY_CMD_TTL_MS);
   relayQueue.push({ entity, action: 'on', at: now, fireAt: now });
-  relayQueue.push({ entity, action: 'off', at: now, fireAt: now + RELAY_PULSE_MS });
+  // on กับ off ถูกส่งให้บอร์ดใน poll เดียวกันเสมอ (ตามลำดับ on -> off) ส่วนความยาวของพัลส์ (~500 ms)
+  // กำหนดฝั่ง Home Assistant ด้วย delay ในออโตเมชัน "Poll commands from cloud"
+  // (เดิมหน่วงที่เซิร์ฟเวอร์ แต่บอร์ด poll ทุก ~5 วิ จึงได้ทั้งพัลส์สั้นเป็นมิลลิวินาทีและพัลส์ยาว 5 วิ สลับกันไม่แน่นอน)
+  relayQueue.push({ entity, action: 'off', at: now, fireAt: now });
   return { ok: true, key, entity };
 }
 
