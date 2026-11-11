@@ -24,7 +24,18 @@ router.post('/sensor', requireMcuKey, (req, res) => {
 // ให้หน้าเว็บ (หลัง login) ดึงข้อมูลล่าสุดแบบ polling
 router.get('/state', requireAuthApi, (req, res) => {
   const db = store.getDB();
-  res.json({ ok: true, sensor: db.sensor, devices: db.devices });
+  res.json({ ok: true, sensor: db.sensor, devices: db.devices, pzem: db.pzem }); // <-- เพิ่ม pzem
+});
+
+// ประวัติการใช้ไฟรายวัน สำหรับกราฟเทรนด์ (ดึงจาก Supabase ตาราง pzem_readings) <-- เพิ่ม
+// GET /api/pzem/history?days=60  (ไม่ส่ง days มา default 60 วัน)
+// แต่ละวันจะมี source บอกด้วยว่าเป็น 'live' (ของจริงจาก ESP) หรือ 'simulated' (ข้อมูลจำลอง backfill)
+// เพื่อให้หน้าเว็บวาดกราฟแยกสี/เส้นประช่วงข้อมูลจำลองได้ ไม่ปนจนแยกไม่ออก
+router.get('/pzem/history', requireAuthApi, async (req, res) => {
+  const days = Math.min(Math.max(parseInt(req.query.days, 10) || 60, 1), 180);
+  const result = await store.getPzemHistory(days);
+  if (!result.ok) return res.status(503).json(result);
+  res.json({ ok: true, days: result.rows });
 });
 
 // ควบคุมแอร์: กดปุ่ม "เปิด" หรือ "ปิด" (ยิง pulse/IR ครั้งเดียว ไม่ใช่ toggle ค้างสถานะ)
@@ -51,6 +62,15 @@ router.post('/ac/temp', requireAuthApi, (req, res) => {
   }
   const action = `temp_${temp}`;
   const result = heartbeat.requestAcAction(action);
+  if (!result.ok) return res.status(400).json(result);
+  res.json(result);
+});
+
+// ควบคุม relay ทั้ง 3 ตัว (First Floor / Air Conditioner / Second Floor): กดปุ๊บเดียว
+// เป็น pulse (on แล้วปิดเองอัตโนมัติ) ไม่ต้องกดซ้ำเพื่อปิดเหมือนปุ่มไฟปกติ <-- เพิ่ม
+// key: relayFloor1 | relayAircon | relayFloor2
+router.post('/relay/:key', requireAuthApi, (req, res) => {
+  const result = heartbeat.requestRelayPulse(req.params.key);
   if (!result.ok) return res.status(400).json(result);
   res.json(result);
 });

@@ -42,6 +42,65 @@
       </div>
     </div>
 
+    <!-- ===== PZEM: ค่าไฟฟ้าจากมิเตอร์วัด (การ์ดเดียว เรียงรายการเหมือนใน ESPHome) ===== -->
+    <div class="section">
+      <div class="section-title">ไฟฟ้า (PZEM)</div>
+      <div class="pzem-card glass">
+        <div class="pzem-row">
+          <span class="pzem-label">⚡ Voltage</span>
+          <span class="pzem-value" id="pzem-voltage"><%= pzem && pzem.voltage !== null && pzem.voltage !== undefined ? pzem.voltage.toFixed(1) : '--' %> V</span>
+        </div>
+        <div class="pzem-row">
+          <span class="pzem-label">〰️ Current</span>
+          <span class="pzem-value" id="pzem-current"><%= pzem && pzem.current !== null && pzem.current !== undefined ? pzem.current.toFixed(3) : '--' %> A</span>
+        </div>
+        <div class="pzem-row">
+          <span class="pzem-label">🔌 Power</span>
+          <span class="pzem-value" id="pzem-power"><%= pzem && pzem.power !== null && pzem.power !== undefined ? pzem.power.toFixed(2) : '--' %> W</span>
+        </div>
+        <div class="pzem-row">
+          <span class="pzem-label">🔋 Energy</span>
+          <span class="pzem-value" id="pzem-energy"><%= pzem && pzem.energy !== null && pzem.energy !== undefined ? pzem.energy.toFixed(0) : '--' %> Wh</span>
+        </div>
+        <div class="pzem-row">
+          <span class="pzem-label">〰️ Frequency</span>
+          <span class="pzem-value" id="pzem-frequency"><%= pzem && pzem.frequency !== null && pzem.frequency !== undefined ? pzem.frequency.toFixed(1) : '--' %> Hz</span>
+        </div>
+        <div class="pzem-row">
+          <span class="pzem-label">📐 Power Factor</span>
+          <span class="pzem-value" id="pzem-power-factor"><%= pzem && pzem.powerFactor !== null && pzem.powerFactor !== undefined ? pzem.powerFactor.toFixed(2) : '--' %></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== กราฟเทรนด์การใช้ไฟย้อนหลัง (รายวัน) ===== -->
+    <!-- ช่วงที่เป็นข้อมูลจำลอง (backfill จาก Excel ก่อนเริ่มเก็บข้อมูลจริง) จะโชว์เป็นเส้นประ/สีจาง
+         แยกจากข้อมูลจริงจาก PZEM ชัดเจน ไม่ให้ดูปนกันจนเข้าใจผิดว่าเป็นค่าที่วัดได้จริงทั้งหมด -->
+    <div class="section">
+      <div class="section-title">เทรนด์การใช้ไฟย้อนหลัง</div>
+      <div class="pzem-card glass" style="padding: 18px 16px;">
+        <div id="pzem-chart-legend" style="display:flex; gap:16px; font-size:12px; color:var(--text-faint); margin-bottom:10px; flex-wrap:wrap;">
+          <span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--accent);margin-right:5px;"></span>ข้อมูลจริง (PZEM)</span>
+          <span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--text-faint);margin-right:5px;"></span>ข้อมูลจำลอง (ประมาณการย้อนหลัง)</span>
+        </div>
+        <canvas id="pzem-history-chart" height="160"></canvas>
+        <div id="pzem-chart-empty" style="display:none; text-align:center; color:var(--text-faint); font-size:13px; padding:20px 0;">
+          ยังไม่มีข้อมูลย้อนหลัง
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== Relay control: BCH8-16M ทั้ง 3 ตัว กดปุ๊บเดียวเป็น pulse ไม่ค้างสถานะ ===== -->
+    <div class="section">
+      <div class="section-title">ควบคุมเบรกเกอร์ (Relay)</div>
+      <div class="relay-grid">
+        <button type="button" class="pulse-btn relay-btn" data-key="relayFloor1">⚡ First Floor</button>
+        <button type="button" class="pulse-btn relay-btn" data-key="relayAircon">⚡ Air Conditioner</button>
+        <button type="button" class="pulse-btn relay-btn" data-key="relayFloor2">⚡ Second Floor</button>
+      </div>
+      <div class="relay-hint" id="relay-status"></div>
+    </div>
+
     <!-- ===== AC control (รีโมท IR แบบกดยิงสัญญาณ ไม่มีสถานะจริงให้อ่าน) ===== -->
     <div class="section">
       <div class="section-title">เครื่องปรับอากาศ</div>
@@ -132,6 +191,7 @@
     <footer class="dash-footer">Smart Home Dashboard</footer>
   </div>
 
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
   <script src="/js/dashboard.js"></script>
 </body>
 </html>

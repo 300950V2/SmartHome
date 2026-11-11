@@ -524,6 +524,65 @@ a { color: inherit; text-decoration: none; }
 .device-name { font-size: 14px; font-weight: 600; }
 .device-status { font-size: 11.5px; color: var(--text-faint); margin-top: 1px; }
 
+/* ---- PZEM card: ค่าไฟฟ้าเรียงเป็นรายการ (label ซ้าย, ค่าขวา) เหมือนใน ESPHome ---- */
+.pzem-card {
+  padding: 8px 20px;
+}
+
+.pzem-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--glass-border);
+}
+
+.pzem-row:last-child {
+  border-bottom: none;
+}
+
+.pzem-label {
+  font-size: 13.5px;
+  color: var(--text-secondary);
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pzem-value {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -0.2px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- Relay grid: 3 ปุ่มเท่ากัน เรียงแถวเดียวบนจอกว้าง ---- */
+.relay-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+
+.relay-grid .pulse-btn {
+  padding: 14px 10px;
+  text-align: center;
+}
+
+@media (max-width: 420px) {
+  .relay-grid { grid-template-columns: 1fr; }
+}
+
+/* ---- Relay hint: ฟีดแบ็กสั้นๆ ใต้ปุ่ม relay ว่ากดอะไรไปล่าสุด ---- */
+.relay-hint {
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--text-faint);
+  text-align: center;
+  min-height: 16px;
+}
+
 footer.dash-footer {
   text-align: center;
   margin-top: 40px;

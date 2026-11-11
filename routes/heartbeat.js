@@ -4,6 +4,9 @@
 // 3) สถานะ online/offline เก็บไว้ที่ Supabase (ตาราง heartbeat_state) ด้วย เพื่อให้รอดจากการที่ Render
 //    sleep/restart แล้ว state ในแรมหาย — กันไม่ให้แจ้ง LINE ซ้ำๆ ทุกครั้งที่เซิร์ฟเวอร์ตื่นใหม่
 // 4) แจ้ง LINE เมื่อเบรกเกอร์ชั้น 1 หรือชั้น 2 ตัดไฟ (โมดูลดับ) <-- เพิ่ม
+// 5) อ่านค่าไฟฟ้าจาก PZEM (โวลต์/แอมป์/วัตต์ ฯลฯ) มาโชว์ในเว็บ + ปุ่มสั่งเปิด/ปิด
+//    relay ทั้ง 3 ตัว (First Floor / Air Conditioner / Second Floor) แบบกดปุ๊บเดียว
+//    (pulse): สั่ง "on" แล้วเดี๋ยวสั่ง "off" ตามให้อัตโนมัติ ไม่ต้องกดซ้ำเพื่อปิด <-- เพิ่ม
 //
 // ENV ที่ต้องตั้งบน Render:
 //   HEARTBEAT_TOKEN             รหัสลับ (ต้องตรงกับที่ตั้งฝั่ง Home Assistant)
@@ -28,6 +31,8 @@ const LINE_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN || '';
 const LINE_TO = process.env.LINE_TO || '';
 const CMD_TTL_MS = 60 * 1000;     // คำสั่งไฟที่บอร์ดไม่ทำตามภายในเวลานี้ จะถูกทิ้ง
 const AC_CMD_TTL_MS = 30 * 1000;  // คำสั่งแอร์ (pulse) ถ้าค้างนานเกินนี้โดยไม่มีบอร์ดมาเอาไป ก็ทิ้ง
+const RELAY_PULSE_MS = 500;       // <-- เพิ่ม: ระยะเวลาที่สั่ง relay ให้ "on" ก่อนจะสั่ง "off" ตามอัตโนมัติ
+const RELAY_CMD_TTL_MS = 30 * 1000; // <-- เพิ่ม: คำสั่ง relay ถ้าค้างนานเกินนี้โดยไม่มีบอร์ดมาเอาไป ก็ทิ้ง
 
 // เริ่มต้นให้ lastBeat = เวลาที่เซิร์ฟเวอร์เริ่มทำงาน
 // (ค่าพวกนี้คือ cache ในแรม ใช้ตอบ /status เร็วๆ — ความจริงที่ยืนยันแล้วอยู่ที่ Supabase
@@ -58,6 +63,21 @@ const SENSOR_MAP = {
   bedroomTemp: 'sensor.dht_sensor_esp_temperature_indoor',      // สมมติว่า indoor = ห้องนอน
   bedroomHumidity: 'sensor.dht_sensor_esp_humidity_indoor'
 };
+// PZEM 004T: ค่าไฟฟ้าจากมิเตอร์วัด ส่งเข้า store.updatePzem() ให้เว็บโชว์เป็นการ์ดเดียว <-- เพิ่ม
+// ⚠️ entity_id ด้านล่างเป็นการ "เดา" จาก name: ที่ตั้งไว้ใน YAML (Voltage, Current, Power, Energy,
+// Frequency, Power Factor) ยังไม่ได้ยืนยันกับ Developer Tools > States เหมือนที่ทำกับ BREAKER_MAP
+// เพราะ sensor พวกนี้ไม่ได้ตั้ง id: ไว้ใน YAML เอง HA เลยสร้าง entity_id อัตโนมัติ
+// (มักจะมี prefix ชื่อ device "consumer_unit_control_" นำหน้าด้วย คล้ายกับที่เจอตอน floor1/floor2)
+// ก่อนใช้งานจริง เช็ค Developer Tools > States ค้นหาคำว่า voltage/current/power/energy/frequency
+// แล้วแก้ 6 บรรทัดนี้ให้ตรงกับของจริง
+const PZEM_MAP = {
+  voltage: 'sensor.voltage',
+  current: 'sensor.current',
+  power: 'sensor.power',
+  energy: 'sensor.energy',
+  frequency: 'sensor.frequency',
+  powerFactor: 'sensor.power_factor'
+};
 // ไฟ: ชื่อฝั่งซ้ายคือ key เดียวกับที่หน้าเว็บใช้ ฝั่งขวาคือ switch ใน HA (การจับคู่หน้า/ห้องนั่งเล่นเป็นการเดา ยังไม่ยืนยัน)
 const LIGHT_MAP = {
   frontLight1: 'switch.light_control_esp_lamp_no1',
@@ -77,6 +97,14 @@ const BREAKER_MAP = {
 // เก็บสถานะล่าสุดที่เคยเห็นแน่ชัด (on/off) ของแต่ละเบรกเกอร์ ไว้เทียบว่าเปลี่ยนตอนไหน
 // เริ่มเป็น null เสมอ เพื่อไม่ให้แจ้งเตือนมั่วตอนเซิร์ฟเวอร์เพิ่งสตาร์ต/ตื่นจาก sleep <-- เพิ่ม
 const breakerLastKnown = { floor1: null, floor2: null };
+
+// รีเลย์คอยล์ A1/A2 ของ BCH8-16M (สั่งเปิด/ปิดโมดูลจากเว็บได้): เว็บกดปุ๊บเดียว
+// แล้วเซิร์ฟเวอร์จะสั่ง "on" ก่อน แล้วเดี๋ยวสั่ง "off" ตามให้อัตโนมัติ (pulse) <-- เพิ่ม
+const RELAY_MAP = {
+  relayFloor1: 'switch.relay_floor1',
+  relayAircon: 'switch.relay_aircon',
+  relayFloor2: 'switch.relay_floor2'
+};
 
 // แอร์: คำสั่งฝั่งเว็บ -> script entity_id ใน HA (กดแล้วจบ ไม่มี state ค้าง)
 // temp_XX = ตั้งอุณหภูมิตรงๆ (สอนสัญญาณ IR ไว้ที่ 18-30 องศา ทีละ 2 องศา)
@@ -154,6 +182,26 @@ function applySensors() {
     store.updateSensor(update);
   } catch (err) {
     console.error('[heartbeat] updateSensor error:', err.message);
+  }
+}
+
+// เอาค่า PZEM จาก HA ไปอัปเดตใน store (ข้ามค่าที่เป็น unavailable / ไม่ใช่ตัวเลข) <-- เพิ่ม
+// store.updatePzem() จะอัปเดตค่าล่าสุด (โชว์การ์ดสดในเว็บ) และ insert แถวประวัติใหม่ลง Supabase
+// ตาราง pzem_readings ด้วย (source: 'live') ให้อัตโนมัติ — ดู data/store.js
+function applyPzem() {
+  const update = {};
+  for (const [key, entityId] of Object.entries(PZEM_MAP)) {
+    const raw = findState(entityId);
+    const num = Number(raw);
+    if (raw !== undefined && raw !== '' && Number.isFinite(num)) {
+      update[key] = Math.round(num * 100) / 100;
+    }
+  }
+  if (Object.keys(update).length === 0) return;
+  try {
+    store.updatePzem(update);
+  } catch (err) {
+    console.error('[heartbeat] updatePzem error:', err.message);
   }
 }
 
@@ -257,6 +305,35 @@ function collectAcCommands(now) {
   const commands = acQueue.map(c => ({ entity: AC_SCRIPT_MAP[c.action], action: 'press' }));
   acQueue = [];
   return commands;
+}
+
+// ---------------------------------------------------------------------
+// สั่ง relay แบบกดปุ๊บเดียว (pulse): เว็บเรียก requestRelayPulse() ครั้งเดียว
+// เซิร์ฟเวอร์จะคิวคำสั่งให้เอง 2 จังหวะ คือสั่ง "on" ก่อน แล้วรอ RELAY_PULSE_MS
+// ค่อยสั่ง "off" ตาม (ไม่ต้องให้เว็บกดสองครั้งเพื่อปิดเหมือนปุ่มไฟปกติ) <-- เพิ่ม
+// ---------------------------------------------------------------------
+let relayQueue = []; // { entity, action: 'on'|'off', at, fireAt }
+
+function requestRelayPulse(key) {
+  if (!Object.prototype.hasOwnProperty.call(RELAY_MAP, key)) {
+    return { ok: false, message: 'ไม่รู้จัก relay ตัวนี้' };
+  }
+  const entity = RELAY_MAP[key];
+  const now = Date.now();
+  // กันคิวบวมถ้าบอร์ดหลุดไปนาน: ตัดคำสั่งเก่าที่ค้างเกิน TTL ออกก่อน
+  relayQueue = relayQueue.filter(c => now - c.at <= RELAY_CMD_TTL_MS);
+  relayQueue.push({ entity, action: 'on', at: now, fireAt: now });
+  relayQueue.push({ entity, action: 'off', at: now, fireAt: now + RELAY_PULSE_MS });
+  return { ok: true, key, entity };
+}
+
+// ดึงเฉพาะคำสั่งที่ถึงเวลายิงแล้ว (fireAt <= now) ออกมาให้บอร์ด ส่วนที่ยังไม่ถึงเวลาคงไว้ในคิวก่อน
+// (ต่างจาก AC ตรงที่ relay มี 2 จังหวะ ต้องรอให้ "on" ถูกส่งไปก่อน ถึงจะส่ง "off" ตามหลังได้)
+function collectRelayCommands(now) {
+  relayQueue = relayQueue.filter(c => now - c.at <= RELAY_CMD_TTL_MS);
+  const due = relayQueue.filter(c => c.fireAt <= now);
+  relayQueue = relayQueue.filter(c => c.fireAt > now);
+  return due.map(c => ({ entity: c.entity, action: c.action }));
 }
 
 // ---------------------------------------------------------------------
@@ -407,6 +484,7 @@ router.post('/', (req, res) => {
     state.esp = esp;
     state.espUpdatedAt = now;
     applySensors();
+    applyPzem(); // <-- เพิ่ม
     checkBreakers(); // <-- เพิ่ม
   }
 
@@ -431,13 +509,21 @@ router.post('/poll', (req, res) => {
     checkBreakers(); // <-- เพิ่ม: poll มาถี่กว่า heartbeat (ทุก ~5 วิ) เช็คตรงนี้ด้วยจะจับการตัดไฟได้ไวขึ้น
   }
 
-  const commands = [...collectLightCommands(now), ...collectAcCommands(now)];
+  const commands = [...collectLightCommands(now), ...collectAcCommands(now), ...collectRelayCommands(now)];
   res.json({ ok: true, commands });
 });
 
 // ---- สั่งไฟจากหน้าเว็บ (ต้อง login): POST /api/heartbeat/light/:key  body { "state": "on" | "off" | "toggle" } ----
 router.post('/light/:key', requireAuthApi, (req, res) => {
   const result = requestLight(req.params.key, req.body && req.body.state);
+  if (!result.ok) return res.status(400).json(result);
+  res.json(result);
+});
+
+// ---- สั่ง relay แบบกดปุ๊บเดียว (ต้อง login): POST /api/heartbeat/relay/:key ----
+// key: relayFloor1 | relayAircon | relayFloor2 (ไม่ต้องส่ง body อะไร กดแล้วเป็น pulse on->off ให้เอง) <-- เพิ่ม
+router.post('/relay/:key', requireAuthApi, (req, res) => {
+  const result = requestRelayPulse(req.params.key);
   if (!result.ok) return res.status(400).json(result);
   res.json(result);
 });
@@ -455,6 +541,7 @@ router.get('/status', requireAuth, (req, res) => {
     breakers: breakerLastKnown, // <-- เพิ่ม: เผื่ออยากดูสถานะล่าสุดผ่าน /status
     pending: Object.fromEntries(pending),
     acPending: acQueue.map(c => c.action),
+    relayPending: relayQueue.map(c => ({ entity: c.entity, action: c.action })), // <-- เพิ่ม
     devices: summarizeDevices(),
     persistedToDB: !!supabase
   });
@@ -482,4 +569,4 @@ function startMonitor() {
   console.log(`✓ Heartbeat monitor started (timeout ${TIMEOUT_MS / 1000}s, persist: ${supabase ? 'Supabase' : 'in-memory only'})`);
 }
 
-module.exports = { router, startMonitor, requestLight, requestAcAction };
+module.exports = { router, startMonitor, requestLight, requestAcAction, requestRelayPulse };
