@@ -132,7 +132,7 @@ document.querySelectorAll('.device-card').forEach(card => {
   });
 });
 
-// ---------- relay buttons: กดปุ๊บเดียวเป็น pulse ไม่ค้างสถานะ (เหมือนปุ่มแอร์) ---------- <-- เพิ่ม
+// ---------- relay buttons: สวิตช์ค้าง กด 1 ครั้ง = สลับ เปิด/ปิด (เหมือนปุ่มใน Home Assistant) ---------- <-- แก้
 const relayStatus = document.getElementById('relay-status');
 const RELAY_LABELS = {
   relayFloor1: 'First Floor',
@@ -148,7 +148,7 @@ document.querySelectorAll('.relay-btn').forEach(btn => {
       const result = await postJSON(`/api/relay/${key}`);
       if (relayStatus) {
         relayStatus.textContent = result.ok
-          ? `กดล่าสุด: ${RELAY_LABELS[key] || key}`
+          ? `สั่ง ${RELAY_LABELS[key] || key}: ${result.target === 'on' ? 'เปิด' : 'ปิด'}`
           : (result.message || 'สั่งงานไม่สำเร็จ');
       }
     } finally {

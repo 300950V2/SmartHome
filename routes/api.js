@@ -66,11 +66,11 @@ router.post('/ac/temp', requireAuthApi, (req, res) => {
   res.json(result);
 });
 
-// ควบคุม relay ทั้ง 3 ตัว (First Floor / Air Conditioner / Second Floor): กดปุ๊บเดียว
-// เป็น pulse (on แล้วปิดเองอัตโนมัติ) ไม่ต้องกดซ้ำเพื่อปิดเหมือนปุ่มไฟปกติ <-- เพิ่ม
+// ควบคุม relay ทั้ง 3 ตัว (First Floor / Air Conditioner / Second Floor): สวิตช์ค้าง
+// กด 1 ครั้ง = สลับ on/off ส่งคำสั่งเดียว แล้วค้างตามนั้น (body ไม่บังคับ: { "state": "on" | "off" | "toggle" }) <-- แก้
 // key: relayFloor1 | relayAircon | relayFloor2
 router.post('/relay/:key', requireAuthApi, (req, res) => {
-  const result = heartbeat.requestRelayPulse(req.params.key);
+  const result = heartbeat.requestRelayToggle(req.params.key, req.body && req.body.state);
   if (!result.ok) return res.status(400).json(result);
   res.json(result);
 });
@@ -104,4 +104,4 @@ router.post('/device/:key/toggle', requireAuthApi, (req, res) => {
   res.json(result);
 });
 
-module.exports = router;
+module.exports = router;

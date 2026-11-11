@@ -277,6 +277,8 @@ function collectLightCommands(now) {
 // สั่งแอร์: เว็บเรียก requestAcAction() แล้วบอร์ดจะมาเอาคำสั่งตอน poll
 // เป็น "pulse" ล้วนๆ ไม่มี state ให้เทียบ เลยต่างไฟคือ: บอร์ด poll มาเจอครั้งเดียว
 // ก็ถือว่ายิงไปแล้ว ลบออกจากคิวทันที (ไม่ส่งซ้ำ)
+// กัน IR ชนกัน: ส่งให้บอร์ดทีละ 1 คำสั่งต่อรอบ poll (HA ยิงหลาย script พร้อมกันแล้วสัญญาณซ้อนกัน
+// แอร์อาจรับเลขเพี้ยน) และถ้ากดตั้งอุณหภูมิหลายครั้งก่อนบอร์ดมาเอา จะเก็บเฉพาะค่าล่าสุด
 // action: 'power_on' | 'power_off' | 'temp_18' | 'temp_20' | ... | 'temp_30'
 // ---------------------------------------------------------------------
 function requestAcAction(action) {
@@ -286,6 +288,8 @@ function requestAcAction(action) {
   const now = Date.now();
   // กันคิวบวมถ้าบอร์ดหลุดไปนาน: ตัดคำสั่งเก่าที่ค้างเกิน TTL ออกก่อน
   acQueue = acQueue.filter(c => now - c.at <= AC_CMD_TTL_MS);
+  // ตั้งอุณหภูมิซ้ำก่อนบอร์ดมาเอา: ทิ้งค่าเก่า เก็บแต่ค่าล่าสุด
+  if (action.startsWith('temp_')) acQueue = acQueue.filter(c => !c.action.startsWith('temp_'));
   acQueue.push({ action, at: now });
 
   // ถ้าเป็นคำสั่งตั้งอุณหภูมิ (temp_18 ... temp_30) ให้ดึงเลขออกมาบันทึกด้วย
@@ -295,12 +299,12 @@ function requestAcAction(action) {
   return { ok: true, action, ac: result.ac };
 }
 
-// ดึงคำสั่งแอร์ทั้งหมดที่ค้างอยู่ออกมาให้บอร์ด แล้วเคลียร์คิวทันที (เป็น pulse ส่งครั้งเดียว)
+// ดึงคำสั่งแอร์ที่ค้างอยู่ออกมา "ทีละ 1 คำสั่งต่อรอบ poll" (เป็น pulse ส่งครั้งเดียว ไม่ยิงซ้ำ)
+// คำสั่งที่เหลือรอรอบ poll ถัดไป (~5 วิ) ไม่ให้ IR หลายสัญญาณซ้อนกัน
 function collectAcCommands(now) {
   acQueue = acQueue.filter(c => now - c.at <= AC_CMD_TTL_MS);
-  const commands = acQueue.map(c => ({ entity: AC_SCRIPT_MAP[c.action], action: 'press' }));
-  acQueue = [];
-  return commands;
+  const next = acQueue.shift();
+  return next ? [{ entity: AC_SCRIPT_MAP[next.action], action: 'press' }] : [];
 }
 
 // ---------------------------------------------------------------------
