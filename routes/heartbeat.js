@@ -5,8 +5,9 @@
 //    sleep/restart แล้ว state ในแรมหาย — กันไม่ให้แจ้ง LINE ซ้ำๆ ทุกครั้งที่เซิร์ฟเวอร์ตื่นใหม่
 // 4) แจ้ง LINE เมื่อเบรกเกอร์ชั้น 1 หรือชั้น 2 ตัดไฟ (โมดูลดับ) <-- เพิ่ม
 // 5) อ่านค่าไฟฟ้าจาก PZEM (โวลต์/แอมป์/วัตต์ ฯลฯ) มาโชว์ในเว็บ + ปุ่มสั่งเปิด/ปิด
-//    relay ทั้ง 3 ตัว (First Floor / Air Conditioner / Second Floor) แบบกดปุ๊บเดียว
-//    (pulse): สั่ง "on" แล้วเดี๋ยวสั่ง "off" ตามให้อัตโนมัติ ไม่ต้องกดซ้ำเพื่อปิด <-- เพิ่ม
+//    relay ทั้ง 3 ตัว (First Floor / Air Conditioner / Second Floor) แบบสวิตช์ค้าง (เหมือนปุ่มใน HA):
+//    เว็บกด 1 ครั้ง = เซิร์ฟเวอร์ส่งคำสั่งเดียว "on" หรือ "off" (สลับจากสถานะปัจจุบัน) แล้วค้างตามนั้น
+//    ไม่มี off ตามหลังอัตโนมัติ และไม่ต้องแก้ HA / ESPHome <-- แก้
 //
 // ENV ที่ต้องตั้งบน Render:
 //   HEARTBEAT_TOKEN             รหัสลับ (ต้องตรงกับที่ตั้งฝั่ง Home Assistant)
@@ -31,8 +32,7 @@ const LINE_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN || '';
 const LINE_TO = process.env.LINE_TO || '';
 const CMD_TTL_MS = 60 * 1000;     // คำสั่งไฟที่บอร์ดไม่ทำตามภายในเวลานี้ จะถูกทิ้ง
 const AC_CMD_TTL_MS = 30 * 1000;  // คำสั่งแอร์ (pulse) ถ้าค้างนานเกินนี้โดยไม่มีบอร์ดมาเอาไป ก็ทิ้ง
-const RELAY_PULSE_MS = 500;       // (ไม่ได้ใช้ที่เซิร์ฟเวอร์แล้ว: ความยาวพัลส์ตั้งด้วย delay ในออโตเมชันของ HA — เก็บไว้เป็นค่าอ้างอิง)
-const RELAY_CMD_TTL_MS = 30 * 1000; // <-- เพิ่ม: คำสั่ง relay ถ้าค้างนานเกินนี้โดยไม่มีบอร์ดมาเอาไป ก็ทิ้ง
+const RELAY_CMD_TTL_MS = 30 * 1000; // คำสั่ง relay ถ้าค้างนานเกินนี้โดยไม่มีบอร์ดมาเอาไป ก็ทิ้ง
 
 // เริ่มต้นให้ lastBeat = เวลาที่เซิร์ฟเวอร์เริ่มทำงาน
 // (ค่าพวกนี้คือ cache ในแรม ใช้ตอบ /status เร็วๆ — ความจริงที่ยืนยันแล้วอยู่ที่ Supabase
@@ -93,8 +93,8 @@ const BREAKER_MAP = {
 // เริ่มเป็น null เสมอ เพื่อไม่ให้แจ้งเตือนมั่วตอนเซิร์ฟเวอร์เพิ่งสตาร์ต/ตื่นจาก sleep <-- เพิ่ม
 const breakerLastKnown = { floor1: null, floor2: null };
 
-// รีเลย์คอยล์ A1/A2 ของ BCH8-16M (สั่งเปิด/ปิดโมดูลจากเว็บได้): เว็บกดปุ๊บเดียว
-// แล้วเซิร์ฟเวอร์จะสั่ง "on" ก่อน แล้วเดี๋ยวสั่ง "off" ตามให้อัตโนมัติ (pulse) <-- เพิ่ม
+// รีเลย์คอยล์ A1/A2 ของ BCH8-16M (สั่งเปิด/ปิดโมดูลจากเว็บได้): เว็บกดครั้งเดียว
+// เป็นสวิตช์ค้างใน HA: เว็บกดครั้งเดียว เซิร์ฟเวอร์สลับ on/off ส่งคำสั่งเดียว แล้วค้างสถานะนั้นไว้ <-- แก้
 // entity_id ยืนยันแล้วจาก /api/heartbeat/status และหน้า Entity ID ใน HA (อุปกรณ์ "Consumer Unit Control")
 const RELAY_MAP = {
   relayFloor1: 'switch.consumer_unit_control_first_floor',
@@ -304,35 +304,44 @@ function collectAcCommands(now) {
 }
 
 // ---------------------------------------------------------------------
-// สั่ง relay แบบกดปุ๊บเดียว (pulse): เว็บเรียก requestRelayPulse() ครั้งเดียว
-// เซิร์ฟเวอร์จะคิวคำสั่งให้เอง 2 จังหวะ คือสั่ง "on" ก่อน แล้วรอ RELAY_PULSE_MS
-// ค่อยสั่ง "off" ตาม (ไม่ต้องให้เว็บกดสองครั้งเพื่อปิดเหมือนปุ่มไฟปกติ) <-- เพิ่ม
+// สั่ง relay แบบสวิตช์ค้าง: เว็บกด 1 ครั้ง = ส่งคำสั่งเดียว ("on" หรือ "off") แล้วค้างสถานะนั้นไว้
+// ทำงานเหมือนปุ่มไฟ: บอร์ดจะได้รับคำสั่งจนกว่าสถานะจริงตรงเป้า (หรือค้างเกิน RELAY_CMD_TTL_MS)
+// state: 'toggle' (ค่าเริ่มต้น) | 'on' | 'off'
+//   toggle = กลับด้านจากคำสั่งที่ค้างอยู่ หรือสถานะจริงล่าสุดที่บอร์ดรายงาน
 // ---------------------------------------------------------------------
-let relayQueue = []; // { entity, action: 'on'|'off', at, fireAt }
+const relayPending = new Map(); // relayKey -> { target: 'on'|'off', at }
 
-function requestRelayPulse(key) {
+function requestRelayToggle(key, action) {
   if (!Object.prototype.hasOwnProperty.call(RELAY_MAP, key)) {
     return { ok: false, message: 'ไม่รู้จัก relay ตัวนี้' };
   }
-  const entity = RELAY_MAP[key];
-  const now = Date.now();
-  // กันคิวบวมถ้าบอร์ดหลุดไปนาน: ตัดคำสั่งเก่าที่ค้างเกิน TTL ออกก่อน
-  relayQueue = relayQueue.filter(c => now - c.at <= RELAY_CMD_TTL_MS);
-  relayQueue.push({ entity, action: 'on', at: now, fireAt: now });
-  // on กับ off ถูกส่งให้บอร์ดใน poll เดียวกันเสมอ (ตามลำดับ on -> off) ส่วนความยาวของพัลส์ (~500 ms)
-  // กำหนดฝั่ง Home Assistant ด้วย delay ในออโตเมชัน "Poll commands from cloud"
-  // (เดิมหน่วงที่เซิร์ฟเวอร์ แต่บอร์ด poll ทุก ~5 วิ จึงได้ทั้งพัลส์สั้นเป็นมิลลิวินาทีและพัลส์ยาว 5 วิ สลับกันไม่แน่นอน)
-  relayQueue.push({ entity, action: 'off', at: now, fireAt: now });
-  return { ok: true, key, entity };
+  let target = action || 'toggle';
+  if (target === 'toggle') {
+    const base = relayPending.has(key) ? relayPending.get(key).target : findState(RELAY_MAP[key]);
+    if (base !== 'on' && base !== 'off') {
+      return { ok: false, message: 'บอร์ดยังไม่รายงานสถานะ relay ตัวนี้' };
+    }
+    target = base === 'on' ? 'off' : 'on';
+  }
+  if (target !== 'on' && target !== 'off') {
+    return { ok: false, message: 'state ต้องเป็น on, off หรือ toggle' };
+  }
+  relayPending.set(key, { target, at: Date.now() });
+  return { ok: true, key, entity: RELAY_MAP[key], target };
 }
 
-// ดึงเฉพาะคำสั่งที่ถึงเวลายิงแล้ว (fireAt <= now) ออกมาให้บอร์ด ส่วนที่ยังไม่ถึงเวลาคงไว้ในคิวก่อน
-// (ต่างจาก AC ตรงที่ relay มี 2 จังหวะ ต้องรอให้ "on" ถูกส่งไปก่อน ถึงจะส่ง "off" ตามหลังได้)
+// คำสั่ง relay ที่ยังต้องทำ: ถ้าสถานะจริงตรงเป้าแล้ว หรือค้างนานเกินกำหนด ก็ลบทิ้ง
 function collectRelayCommands(now) {
-  relayQueue = relayQueue.filter(c => now - c.at <= RELAY_CMD_TTL_MS);
-  const due = relayQueue.filter(c => c.fireAt <= now);
-  relayQueue = relayQueue.filter(c => c.fireAt > now);
-  return due.map(c => ({ entity: c.entity, action: c.action }));
+  const commands = [];
+  for (const [key, cmd] of relayPending) {
+    const entity = RELAY_MAP[key];
+    if (findState(entity) === cmd.target || now - cmd.at > RELAY_CMD_TTL_MS) {
+      relayPending.delete(key);
+      continue;
+    }
+    commands.push({ entity, action: cmd.target });
+  }
+  return commands;
 }
 
 // ---------------------------------------------------------------------
@@ -494,6 +503,7 @@ router.post('/', (req, res) => {
 // body:  { "switches": { "switch.xxx": "on", ... } }  สถานะรีเลย์จริงตอนนี้
 // ตอบ:   { "ok": true, "commands": [ { "entity": "switch.xxx", "action": "on" | "off" | "press" } ] }
 //   - ไฟ: action เป็น "on"/"off" (ยิงซ้ำได้จนกว่า state จะตรง)
+//   - relay: action เป็น "on"/"off" เหมือนไฟ (สวิตช์ค้าง ยิงซ้ำได้จนกว่า state จะตรง)
 //   - แอร์: action เป็น "press" (เรียก script.turn_on กับ entity นั้น แล้วจบ ไม่ยิงซ้ำ)
 router.post('/poll', (req, res) => {
   if (!checkToken(req, res)) return;
@@ -519,10 +529,10 @@ router.post('/light/:key', requireAuthApi, (req, res) => {
   res.json(result);
 });
 
-// ---- สั่ง relay แบบกดปุ๊บเดียว (ต้อง login): POST /api/heartbeat/relay/:key ----
-// key: relayFloor1 | relayAircon | relayFloor2 (ไม่ต้องส่ง body อะไร กดแล้วเป็น pulse on->off ให้เอง) <-- เพิ่ม
+// ---- สั่ง relay แบบสวิตช์ค้าง (ต้อง login): POST /api/heartbeat/relay/:key  body (ไม่บังคับ) { "state": "on" | "off" | "toggle" } ----
+// key: relayFloor1 | relayAircon | relayFloor2 (ไม่ส่ง body = toggle กดครั้งเดียวสลับสถานะแล้วค้างไว้)
 router.post('/relay/:key', requireAuthApi, (req, res) => {
-  const result = requestRelayPulse(req.params.key);
+  const result = requestRelayToggle(req.params.key, req.body && req.body.state);
   if (!result.ok) return res.status(400).json(result);
   res.json(result);
 });
@@ -540,7 +550,7 @@ router.get('/status', requireAuth, (req, res) => {
     breakers: breakerLastKnown, // <-- เพิ่ม: เผื่ออยากดูสถานะล่าสุดผ่าน /status
     pending: Object.fromEntries(pending),
     acPending: acQueue.map(c => c.action),
-    relayPending: relayQueue.map(c => ({ entity: c.entity, action: c.action })), // <-- เพิ่ม
+    relayPending: Object.fromEntries(relayPending),
     devices: summarizeDevices(),
     persistedToDB: !!supabase
   });
@@ -568,4 +578,5 @@ function startMonitor() {
   console.log(`✓ Heartbeat monitor started (timeout ${TIMEOUT_MS / 1000}s, persist: ${supabase ? 'Supabase' : 'in-memory only'})`);
 }
 
-module.exports = { router, startMonitor, requestLight, requestAcAction, requestRelayPulse };
+// requestRelayPulse คงชื่อเดิมไว้เป็น alias กันไฟล์อื่นที่ import อยู่พัง (ตอนนี้ทำงานแบบ toggle)
+module.exports = { router, startMonitor, requestLight, requestAcAction, requestRelayToggle, requestRelayPulse: requestRelayToggle };
