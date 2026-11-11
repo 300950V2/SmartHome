@@ -174,68 +174,192 @@ async function pollState() {
 
 setInterval(pollState, 5000);
 
-// ---------- กราฟเทรนด์การใช้ไฟย้อนหลัง ----------
-// วาดเส้นต่อเนื่องเดียวกันทั้งของจริง (live) และข้อมูลจำลอง (simulated) แต่ช่วงที่เป็นข้อมูลจำลอง
-// จะใช้สีจางกว่า+เส้นประ ให้แยกออกได้ชัดเจนว่าช่วงไหนเป็นค่าที่วัดได้จริงจาก PZEM
-async function loadPzemHistoryChart() {
-  const canvas = document.getElementById('pzem-history-chart');
-  const emptyMsg = document.getElementById('pzem-chart-empty');
-  if (!canvas || typeof Chart === 'undefined') return;
+// ---------- สรุป + กราฟเทรนด์การใช้ไฟย้อนหลัง (รายวัน, kWh) ----------
+// ข้อมูลทุกวันถือเป็นชุดเดียวกัน ไม่มีการแยกสีหรือบอกที่มาของข้อมูลบนกราฟ
+// แต่ละวันที่ไม่มีข้อมูลเลยจะเป็น kwh = null (เช่นช่วงที่ยังไม่ได้ต่อมิเตอร์) กราฟจะลากเส้นต่อข้ามให้
+const USAGE_ACCENT = '139, 143, 248'; // rgb ของสี accent (#8b8ff8) ใช้ทำ gradient/จุด
+const USAGE_REFRESH_MS = 5 * 60 * 1000; // รีเฟรชกราฟทุก 5 นาที เพื่อให้ยอด "วันนี้" ขยับตาม
 
-  let data;
-  try {
-    const res = await fetch('/api/pzem/history?days=60');
-    data = await res.json();
-  } catch (e) {
-    return;
-  }
-  if (!data.ok || !data.days || data.days.length === 0) {
-    canvas.style.display = 'none';
-    if (emptyMsg) emptyMsg.style.display = 'block';
-    return;
-  }
+let pzemChartInstance = null;
+let pzemChartCurrentDays = 60;
 
-  const labels = data.days.map(d => {
-    const dt = new Date(d.date + 'T00:00:00');
-    return dt.toLocaleDateString('th-TH', { day: '2-digit', month: 'short' });
-  });
-  const values = data.days.map(d => d.kwh);
-  const isSimulated = data.days.map(d => d.source === 'simulated');
+// วันที่ปัจจุบันเป็น 'YYYY-MM-DD' ตามเวลาไทย (ไม่ขึ้นกับเขตเวลาของเครื่องที่เปิดเว็บ)
+function todayBangkokKey() {
+  return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
+}
 
-  // แต้มสีจุดต่อจุด: จุดไหนเป็นข้อมูลจำลองให้จางกว่า จุดไหนเป็นของจริงให้เป็นสี accent
-  const pointColors = isSimulated.map(sim => sim ? 'rgba(245, 246, 250, 0.35)' : '#8b8ff8');
-  // เส้นประเฉพาะช่วงจำลอง: ใช้ segment callback ของ Chart.js ตาม index ของจุดปลายส่วน (p1)
-  const segmentDash = (ctx) => (isSimulated[ctx.p1DataIndex] ? [6, 4] : undefined);
-  const segmentColor = (ctx) => (isSimulated[ctx.p1DataIndex] ? 'rgba(245, 246, 250, 0.35)' : '#8b8ff8');
+function fmtKwh(v, digits) {
+  return (v === null || v === undefined || !Number.isFinite(v))
+    ? '--'
+    : v.toLocaleString('th-TH', { minimumFractionDigits: digits, maximumFractionDigits: digits });
+}
 
-  new Chart(canvas.getContext('2d'), {
+function fmtDayShort(dateKey) {
+  return new Date(dateKey + 'T00:00:00').toLocaleDateString('th-TH', { day: 'numeric', month: 'short' });
+}
+function fmtDayLong(dateKey) {
+  return new Date(dateKey + 'T00:00:00').toLocaleDateString('th-TH', { weekday: 'short', day: 'numeric', month: 'long', year: 'numeric' });
+}
+
+function setText(id, text) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = text;
+}
+
+// ตัวเลขสรุปเหนือกราฟ: วันนี้ / เฉลี่ยต่อวัน / รวมทั้งช่วง / วันที่ใช้สูงสุด
+function renderUsageStats(days) {
+  const todayKey = todayBangkokKey();
+  const withData = days.filter(d => d.kwh !== null && d.kwh !== undefined);
+
+  // "เฉลี่ย" และ "สูงสุด" ไม่นับวันนี้ เพราะวันนี้ยังไม่จบ ยอดจะต่ำกว่าความจริงและทำให้ค่าเฉลี่ยเพี้ยน
+  const complete = withData.filter(d => d.date !== todayKey);
+  const total = withData.reduce((s, d) => s + d.kwh, 0);
+  const avg = complete.length ? complete.reduce((s, d) => s + d.kwh, 0) / complete.length : null;
+  const peak = complete.length ? complete.reduce((a, b) => (b.kwh > a.kwh ? b : a)) : null;
+  const today = withData.find(d => d.date === todayKey);
+
+  setText('usage-today', today ? fmtKwh(today.kwh, 1) : '--');
+  setText('usage-avg', fmtKwh(avg, 1));
+  setText('usage-total', fmtKwh(total, 0));
+  setText('usage-peak', peak ? fmtKwh(peak.kwh, 1) : '--');
+  setText('usage-peak-date', peak ? fmtDayShort(peak.date) : '');
+}
+
+function usageGradient(ctx) {
+  const { chart } = ctx;
+  const area = chart.chartArea;
+  if (!area) return `rgba(${USAGE_ACCENT}, 0.18)`;
+  const g = chart.ctx.createLinearGradient(0, area.top, 0, area.bottom);
+  g.addColorStop(0, `rgba(${USAGE_ACCENT}, 0.38)`);
+  g.addColorStop(1, `rgba(${USAGE_ACCENT}, 0)`);
+  return g;
+}
+
+function buildUsageChart(canvas, days) {
+  const todayKey = todayBangkokKey();
+  return new Chart(canvas.getContext('2d'), {
     type: 'line',
     data: {
-      labels,
+      labels: days.map(d => fmtDayShort(d.date)),
       datasets: [{
         label: 'หน่วยไฟที่ใช้ (kWh/วัน)',
-        data: values,
-        borderWidth: 2,
-        pointRadius: 2,
-        pointBackgroundColor: pointColors,
-        pointBorderColor: pointColors,
-        tension: 0.3,
+        data: days.map(d => d.kwh),
+        borderColor: `rgb(${USAGE_ACCENT})`,
+        backgroundColor: usageGradient,
+        fill: true,
+        borderWidth: 2.5,
+        tension: 0.35,
         spanGaps: true,
-        segment: {
-          borderColor: segmentColor,
-          borderDash: segmentDash
-        }
+        pointRadius: days.length <= 14 ? 3.5 : 0,   // ช่วงสั้นโชว์จุด ช่วงยาวซ่อนจุดให้เส้นดูสะอาด
+        pointHoverRadius: 6,
+        pointBackgroundColor: `rgb(${USAGE_ACCENT})`,
+        pointBorderColor: 'rgba(255,255,255,0.85)',
+        pointBorderWidth: 1.5
       }]
     },
     options: {
       responsive: true,
-      plugins: { legend: { display: false } },
+      maintainAspectRatio: false,
+      animation: { duration: 450 },
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          displayColors: false,
+          padding: 10,
+          backgroundColor: 'rgba(20, 22, 40, 0.92)',
+          titleColor: 'rgba(245,246,250,0.75)',
+          bodyColor: '#fff',
+          bodyFont: { size: 14, weight: '600' },
+          callbacks: {
+            title: (items) => (items.length ? fmtDayLong(chartDays[items[0].dataIndex].date) : ''),
+            label: (ctx) => `${fmtKwh(ctx.parsed.y, 2)} kWh`,
+            afterLabel: (ctx) => (chartDays[ctx.dataIndex].date === todayKey ? 'ยอดสะสมของวันนี้ (ยังไม่จบวัน)' : '')
+          }
+        }
+      },
       scales: {
-        x: { ticks: { color: 'rgba(245,246,250,0.5)', maxTicksLimit: 10 }, grid: { color: 'rgba(255,255,255,0.05)' } },
-        y: { ticks: { color: 'rgba(245,246,250,0.5)' }, grid: { color: 'rgba(255,255,255,0.05)' }, title: { display: true, text: 'kWh', color: 'rgba(245,246,250,0.5)' } }
+        x: {
+          ticks: { color: 'rgba(245,246,250,0.5)', maxTicksLimit: 8, maxRotation: 0 },
+          grid: { display: false },
+          border: { display: false }
+        },
+        y: {
+          beginAtZero: true,
+          ticks: { color: 'rgba(245,246,250,0.5)', maxTicksLimit: 5 },
+          grid: { color: 'rgba(255,255,255,0.06)' },
+          border: { display: false },
+          title: { display: true, text: 'kWh', color: 'rgba(245,246,250,0.45)' }
+        }
       }
     }
   });
 }
 
-loadPzemHistoryChart();
+// เก็บชุดข้อมูลปัจจุบันไว้ให้ tooltip อ้างถึง (callback ของ Chart.js อ่านตัวแปรนี้ตอนชี้/แตะ)
+let chartDays = [];
+
+async function loadPzemHistoryChart(days, opts) {
+  days = days || pzemChartCurrentDays;
+  pzemChartCurrentDays = days;
+  const silent = opts && opts.silent; // รีเฟรชเงียบๆ ไม่ต้องกระพริบปุ่ม
+
+  const canvas = document.getElementById('pzem-history-chart');
+  const emptyMsg = document.getElementById('pzem-chart-empty');
+  if (!canvas || typeof Chart === 'undefined') return;
+
+  if (!silent) updateRangeButtonsActive(days);
+
+  let data;
+  try {
+    const res = await fetch('/api/pzem/history?days=' + encodeURIComponent(days));
+    data = await res.json();
+  } catch (e) {
+    return; // เน็ตหลุดชั่วคราว คงกราฟเดิมไว้
+  }
+  if (days !== pzemChartCurrentDays) return; // ผู้ใช้กดเปลี่ยนช่วงใหม่ระหว่างรอ ทิ้งผลเก่า
+
+  const rows = data && data.ok && Array.isArray(data.days) ? data.days : [];
+  const hasData = rows.some(d => d.kwh !== null && d.kwh !== undefined);
+
+  renderUsageStats(rows);
+
+  if (!hasData) {
+    if (pzemChartInstance) { pzemChartInstance.destroy(); pzemChartInstance = null; }
+    canvas.parentElement.style.display = 'none';
+    if (emptyMsg) emptyMsg.style.display = 'block';
+    return;
+  }
+  canvas.parentElement.style.display = 'block';
+  if (emptyMsg) emptyMsg.style.display = 'none';
+
+  chartDays = rows;
+  if (pzemChartInstance) {
+    // อัปเดตข้อมูลในกราฟเดิม (เปลี่ยนช่วง/รีเฟรช) แทนการสร้างใหม่ ให้เลื่อนเส้นนุ่มๆ
+    const ds = pzemChartInstance.data.datasets[0];
+    pzemChartInstance.data.labels = rows.map(d => fmtDayShort(d.date));
+    ds.data = rows.map(d => d.kwh);
+    ds.pointRadius = rows.length <= 14 ? 3.5 : 0;
+    pzemChartInstance.update();
+  } else {
+    pzemChartInstance = buildUsageChart(canvas, rows);
+  }
+}
+
+// ---------- ปุ่มเลือกช่วงเวลาย้อนหลัง (7 / 30 / 60 วัน) ----------
+function updateRangeButtonsActive(days) {
+  document.querySelectorAll('.usage-range-btn').forEach(btn => {
+    const active = Number(btn.dataset.days) === Number(days);
+    btn.classList.toggle('is-active', active);
+    btn.setAttribute('aria-pressed', active ? 'true' : 'false');
+  });
+}
+
+document.querySelectorAll('.usage-range-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    loadPzemHistoryChart(Number(btn.dataset.days));
+  });
+});
+
+loadPzemHistoryChart(60);
+setInterval(() => loadPzemHistoryChart(null, { silent: true }), USAGE_REFRESH_MS);

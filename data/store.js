@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
-const { supabase } = require('./supabase'); // <-- เพิ่ม: เก็บ pzem_readings ลง Supabase (รอดจาก Render restart)
+const { supabase } = require('./supabase'); // เก็บ pzem_readings ลง Supabase (รอดจาก Render restart)
 
 const DB_FILE = path.join(__dirname, 'db.json');
 
@@ -32,7 +32,7 @@ function defaultData() {
       livingLight1: false,                  // ไฟห้องนั่งเล่น ดวงที่ 1
       livingLight2: false                   // ไฟห้องนั่งเล่น ดวงที่ 2
     },
-    // ค่า PZEM ล่าสุด (แสดงบนการ์ดเดียวในหน้าเว็บ) — ประวัติย้อนหลังเก็บแยกอยู่ที่ Supabase ตาราง
+    // ค่า PZEM ล่าสุด (แสดงบนการ์ดเดียวในหน้าเว็บ) — ประวัติย้อนหลังทั้งหมดเก็บที่ Supabase ตาราง
     // pzem_readings (ดู updatePzem/insertPzemReading/getPzemHistory ด้านล่าง) ไม่ได้เก็บในไฟล์นี้
     pzem: {
       voltage: null,
@@ -132,9 +132,8 @@ module.exports = {
 
   // ---- PZEM: ค่าไฟฟ้าล่าสุด (สำหรับการ์ดสดบนหน้าเว็บ) ----
   // update: { voltage, current, power, energy, frequency, powerFactor } (ค่าไหนไม่ส่งมาจะคงค่าเดิมไว้)
-  // เขียนลง db.json ไว้โชว์ค่าล่าสุดเร็วๆ เหมือนเดิม และ insert เป็นแถวใหม่ลง Supabase (source: 'live')
-  // เพื่อสะสมเป็นประวัติสำหรับกราฟเทรนด์ — ถ้า insert ลง Supabase ไม่สำเร็จ (เช่นยังไม่ได้ตั้ง env)
-  // ค่าล่าสุดในเว็บจะยังอัปเดตปกติ แค่ประวัติจะไม่ถูกบันทึกเพิ่มเท่านั้น
+  // เขียนลง db.json ไว้โชว์ค่าล่าสุดเร็วๆ และ insert เป็นแถวใหม่ลง Supabase ตาราง pzem_readings เพื่อสะสมเป็นประวัติ
+  // ถ้า insert ลง Supabase ไม่สำเร็จ (เช่นยังไม่ได้ตั้ง env) ค่าล่าสุดในเว็บจะยังอัปเดตปกติ แค่ประวัติจะไม่ถูกบันทึกเพิ่ม
   updatePzem({ voltage, current, power, energy, frequency, powerFactor }) {
     if (voltage !== undefined) db.pzem.voltage = voltage;
     if (current !== undefined) db.pzem.current = current;
@@ -153,70 +152,45 @@ module.exports = {
       power: db.pzem.power,
       energy: db.pzem.energy,
       frequency: db.pzem.frequency,
-      powerFactor: db.pzem.powerFactor,
-      source: 'live'
-    }).catch(err => console.error('[store] insertPzemReading (live) error:', err.message));
+      powerFactor: db.pzem.powerFactor
+    }).then(r => {
+      if (!r.ok && supabase) console.error('[store] insertPzemReading error:', r.message);
+    }).catch(err => console.error('[store] insertPzemReading error:', err.message));
 
     return db.pzem;
   },
 
   // ---- PZEM: insert แถวประวัติ 1 แถวลง Supabase ตาราง pzem_readings ----
-  // ใช้ทั้งจาก updatePzem() ด้านบน (source: 'live') และจากสคริปต์ seed ข้อมูลจำลอง (source: 'simulated')
-  // reading: { recordedAt (ISO string), voltage, current, power, energy, dailyKwh, frequency, powerFactor, source }
+  // reading: { recordedAt (ISO string), voltage, current, power, energy, frequency, powerFactor }
+  // ทุกแถวเหมือนกันหมด ไม่มีคอลัมน์บอกที่มา (ข้อมูลที่ backfill ด้วย scripts/seed_simulated_pzem.js ก็อยู่ในตารางเดียวกัน)
   async insertPzemReading(reading) {
     if (!supabase) return { ok: false, message: 'ยังไม่ได้ตั้งค่า Supabase' };
-    const source = reading.source === 'simulated' ? 'simulated' : 'live';
     const { error } = await supabase.from('pzem_readings').insert({
       recorded_at: reading.recordedAt || new Date().toISOString(),
       voltage: reading.voltage ?? null,
       current: reading.current ?? null,
       power: reading.power ?? null,
       energy: reading.energy ?? null,
-      daily_kwh: reading.dailyKwh ?? null,
       frequency: reading.frequency ?? null,
-      power_factor: reading.powerFactor ?? null,
-      source
+      power_factor: reading.powerFactor ?? null
     });
     if (error) return { ok: false, message: error.message };
     return { ok: true };
   },
 
-  // ---- PZEM: ดึงประวัติย้อนหลังสำหรับกราฟเทรนด์ ----
-  // คืนรายวัน (รวม/เฉลี่ยต่อวันแล้ว) เรียงจากเก่าไปใหม่ พร้อมบอกว่าวันนั้นมี source อะไรบ้าง
-  // (ปกติแต่ละวันจะมี source เดียว แต่ถ้าเผื่อคาบเกี่ยวกันจะ mark เป็น 'mixed')
+  // ---- PZEM: หน่วยไฟรายวัน (kWh) ย้อนหลัง สำหรับกราฟเทรนด์ ----
+  // คำนวณในฐานข้อมูลด้วยฟังก์ชัน pzem_daily_usage() (ดู pzem_readings_schema.sql) เพราะ Supabase ตอบได้แค่ 1,000 แถว
+  // ต่อคำขอ แต่ข้อมูลรายนาทีมีวันละ 1,440 แถว — ถ้า select แถวดิบมาสรุปเองที่ Node จะได้ไม่ครบ
+  // คืนครบทุกวันในช่วง เรียงเก่า -> ใหม่ : [{ date: 'YYYY-MM-DD', kwh: number | null }]
+  // (วันไหนไม่มีข้อมูลเลยจะเป็น kwh = null, วันนับตามเวลาไทย, วันนี้เป็นยอดสะสมถึงตอนนี้)
   async getPzemHistory(days = 60) {
     if (!supabase) return { ok: false, message: 'ยังไม่ได้ตั้งค่า Supabase', rows: [] };
-    const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
-    const { data, error } = await supabase
-      .from('pzem_readings')
-      .select('recorded_at, daily_kwh, energy, source')
-      .gte('recorded_at', since)
-      .order('recorded_at', { ascending: true });
+    const { data, error } = await supabase.rpc('pzem_daily_usage', { p_days: days });
     if (error) return { ok: false, message: error.message, rows: [] };
-
-    // รวมเป็นรายวัน: ใช้ daily_kwh ล่าสุดของแต่ละวัน (หรือถ้าไม่มี ให้ max(energy) - min(energy) ของวันนั้น)
-    const byDate = new Map(); // 'YYYY-MM-DD' -> { kwh, sources:Set }
-    for (const row of data) {
-      const day = row.recorded_at.slice(0, 10);
-      if (!byDate.has(day)) byDate.set(day, { kwh: null, sources: new Set(), energyMin: null, energyMax: null });
-      const entry = byDate.get(day);
-      entry.sources.add(row.source);
-      if (row.daily_kwh !== null && row.daily_kwh !== undefined) {
-        entry.kwh = row.daily_kwh; // reading ล่าสุดในวันนั้นชนะ (daily_kwh สะสมขึ้นเรื่อยๆ ในวันเดียวกัน)
-      }
-      if (row.energy !== null && row.energy !== undefined) {
-        entry.energyMin = entry.energyMin === null ? row.energy : Math.min(entry.energyMin, row.energy);
-        entry.energyMax = entry.energyMax === null ? row.energy : Math.max(entry.energyMax, row.energy);
-      }
-    }
-
-    const rows = [...byDate.entries()].map(([date, entry]) => ({
-      date,
-      kwh: entry.kwh !== null ? entry.kwh
-         : (entry.energyMin !== null ? Math.round((entry.energyMax - entry.energyMin) / 1000 * 100) / 100 : null),
-      source: entry.sources.size > 1 ? 'mixed' : [...entry.sources][0]
-    })).sort((a, b) => a.date.localeCompare(b.date));
-
+    const rows = (data || []).map(r => ({
+      date: String(r.usage_date).slice(0, 10),
+      kwh: r.kwh === null || r.kwh === undefined ? null : Number(r.kwh)
+    }));
     return { ok: true, rows };
   }
 };

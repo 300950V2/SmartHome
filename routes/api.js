@@ -24,13 +24,13 @@ router.post('/sensor', requireMcuKey, (req, res) => {
 // ให้หน้าเว็บ (หลัง login) ดึงข้อมูลล่าสุดแบบ polling
 router.get('/state', requireAuthApi, (req, res) => {
   const db = store.getDB();
-  res.json({ ok: true, sensor: db.sensor, devices: db.devices, pzem: db.pzem }); // <-- เพิ่ม pzem
+  res.json({ ok: true, sensor: db.sensor, devices: db.devices, pzem: db.pzem });
 });
 
-// ประวัติการใช้ไฟรายวัน สำหรับกราฟเทรนด์ (ดึงจาก Supabase ตาราง pzem_readings) <-- เพิ่ม
-// GET /api/pzem/history?days=60  (ไม่ส่ง days มา default 60 วัน)
-// แต่ละวันจะมี source บอกด้วยว่าเป็น 'live' (ของจริงจาก ESP) หรือ 'simulated' (ข้อมูลจำลอง backfill)
-// เพื่อให้หน้าเว็บวาดกราฟแยกสี/เส้นประช่วงข้อมูลจำลองได้ ไม่ปนจนแยกไม่ออก
+// ประวัติการใช้ไฟรายวัน สำหรับกราฟเทรนด์ (คำนวณจาก Supabase ตาราง pzem_readings ผ่านฟังก์ชัน pzem_daily_usage)
+// GET /api/pzem/history?days=60  (ไม่ส่ง days มา default 60 วัน, สูงสุด 180)
+// ตอบ { ok: true, days: [{ date: 'YYYY-MM-DD', kwh: number | null }, ...] } เรียงเก่า -> ใหม่ ครบทุกวันในช่วง
+// (วันที่ไม่มีข้อมูลเลยจะเป็น kwh = null) ไม่มีการบอกที่มาของข้อมูลแล้ว ทุกวันถือเป็นข้อมูลชุดเดียวกัน
 router.get('/pzem/history', requireAuthApi, async (req, res) => {
   const days = Math.min(Math.max(parseInt(req.query.days, 10) || 60, 1), 180);
   const result = await store.getPzemHistory(days);
@@ -104,4 +104,4 @@ router.post('/device/:key/toggle', requireAuthApi, (req, res) => {
   res.json(result);
 });
 
-module.exports = router;
+module.exports = router;

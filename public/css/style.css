@@ -299,7 +299,8 @@ a { color: inherit; text-decoration: none; }
   letter-spacing: -0.5px;
   line-height: 1;
 }
-.sensor-temp span { font-size: 18px; font-weight: 500; color: var(--text-faint); }
+/* เฉพาะหน่วย °C (span ตัวท้าย) ที่เล็กและจาง — ตัวเลขอุณหภูมิ (span ตัวแรก) ต้องใหญ่ตาม .sensor-temp */
+.sensor-temp span:last-child { font-size: 18px; font-weight: 500; color: var(--text-faint); }
 
 .sensor-humidity {
   margin-top: 10px;
@@ -524,39 +525,57 @@ a { color: inherit; text-decoration: none; }
 .device-name { font-size: 14px; font-weight: 600; }
 .device-status { font-size: 11.5px; color: var(--text-faint); margin-top: 1px; }
 
-/* ---- PZEM card: ค่าไฟฟ้าเรียงเป็นรายการ (label ซ้าย, ค่าขวา) เหมือนใน ESPHome ---- */
+/* ---- PZEM card: ค่าไฟฟ้าเป็นกระเบื้อง 2 คอลัมน์ (5 คอลัมน์บนจอกว้าง) โดย Power เป็นตัวเด่นเต็มแถวบนสุดของกริด
+   (โครงสร้าง HTML เดิมยังเหมือนเดิม: ลำดับแถวคือ Voltage, Current, Power, Energy, Frequency, Power Factor) ---- */
 .pzem-card {
-  padding: 8px 20px;
+  padding: 14px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
 }
 
 .pzem-row {
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  align-items: flex-start;
   justify-content: space-between;
-  padding: 14px 0;
-  border-bottom: 1px solid var(--glass-border);
-}
-
-.pzem-row:last-child {
-  border-bottom: none;
+  gap: 8px;
+  padding: 14px 16px;
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.04);
+  min-width: 0;
 }
 
 .pzem-label {
-  font-size: 13.5px;
+  font-size: 12px;
   color: var(--text-secondary);
   font-weight: 500;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
 }
 
 .pzem-value {
-  font-size: 15px;
+  font-size: 20px;
   font-weight: 700;
   color: var(--text-primary);
-  letter-spacing: -0.2px;
+  letter-spacing: -0.3px;
+  line-height: 1.1;
   font-variant-numeric: tabular-nums;
 }
+
+/* Power: ตัวเลขหลักของการ์ด วางเต็มความกว้าง ตัวใหญ่ มีโทนสี accent */
+.pzem-row:nth-child(3) {
+  grid-column: 1 / -1;
+  order: -1;
+  padding: 18px 18px 20px;
+  background: linear-gradient(135deg, rgba(139, 143, 248, 0.28), rgba(56, 189, 248, 0.08));
+  border-color: rgba(139, 143, 248, 0.45);
+}
+.pzem-row:last-child { grid-column: 1 / -1; }  /* 2 คอลัมน์ มี 5 กระเบื้องเล็ก: ใบสุดท้ายเต็มแถว */
+.pzem-row:nth-child(3) .pzem-label { font-size: 13px; }
+.pzem-row:nth-child(3) .pzem-value { font-size: 38px; letter-spacing: -1px; }
 
 /* ---- Relay grid: 3 ปุ่มเท่ากัน เรียงแถวเดียวบนจอกว้าง ---- */
 .relay-grid {
@@ -661,4 +680,122 @@ footer.dash-footer {
   .ac-power-btns { width: 100%; }
   .pulse-btn { flex: 1; }
   .temp-picker-row { gap: 20px; }
+}
+
+/* ========================================================= */
+/* UI POLISH                                                   */
+/* ========================================================= */
+
+/* หัวข้อ section: แถบสี accent เล็กๆ นำหน้า */
+.section-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.section-title::before {
+  content: "";
+  width: 3px;
+  height: 13px;
+  border-radius: 2px;
+  background: linear-gradient(180deg, var(--accent), #38bdf8);
+  flex-shrink: 0;
+}
+
+/* การ์ดเซ็นเซอร์: อุณหภูมิเป็น gradient + แสงเรืองมุมการ์ด */
+.sensor-card::after {
+  content: "";
+  position: absolute;
+  top: -40px;
+  right: -40px;
+  width: 120px;
+  height: 120px;
+  border-radius: 50%;
+  background: radial-gradient(circle, var(--accent-soft), transparent 70%);
+  pointer-events: none;
+}
+.sensor-temp {
+  background: linear-gradient(135deg, #fff 30%, #c4c6ff);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+.sensor-temp span:last-child {
+  -webkit-text-fill-color: var(--text-faint);
+}
+
+/* การ์ดไฟ: ยกขึ้นนิดเมื่อชี้ ตัวอักษรสถานะเป็นสีเขียวเมื่อเปิด */
+.device-card {
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  transition: border-color 0.2s ease, background 0.2s ease, transform 0.15s ease, box-shadow 0.2s ease;
+}
+.device-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255,255,255,0.06);
+}
+.device-card:active { transform: scale(0.97); }
+.device-card.on .device-status { color: var(--accent-on); }
+
+/* การ์ดแอร์: แยกส่วนปรับอุณหภูมิออกจากปุ่มเปิด/ปิดด้วยเส้นคั่น ตัวเลของศาเป็น gradient */
+.ac-temp-picker {
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: 1px solid var(--glass-border);
+}
+.temp-picker-value {
+  font-size: 44px;
+  background: linear-gradient(135deg, #fff 30%, var(--accent));
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+.temp-set-btn {
+  background: linear-gradient(135deg, var(--accent), #6366f1);
+  border-color: transparent;
+  box-shadow: 0 8px 20px var(--accent-soft);
+}
+.temp-set-btn:hover {
+  background: linear-gradient(135deg, var(--accent), #6366f1);
+  border-color: transparent;
+  opacity: 0.92;
+}
+
+/* ปุ่มกดยิงคำสั่ง (relay/แอร์): ตอนกำลังส่งคำสั่ง (JS ใส่ disabled ให้) ต้องดูออกว่ากดไม่ได้ชั่วคราว */
+.pulse-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+.relay-grid .pulse-btn {
+  padding: 16px 10px;
+  font-size: 13.5px;
+}
+
+/* โฟกัสด้วยคีย์บอร์ด */
+.icon-btn:focus-visible,
+.pulse-btn:focus-visible,
+.temp-step-btn:focus-visible,
+.temp-set-btn:focus-visible,
+.device-card:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* จอกว้าง: กระเบื้องเล็ก 5 ใบเรียงแถวเดียว (Power ยังเต็มแถวบนสุด) */
+@media (min-width: 640px) {
+  .pzem-card { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+  .pzem-row:last-child { grid-column: auto; }
+  .pzem-row:nth-child(3) .pzem-value { font-size: 46px; }
+}
+
+/* จอเล็ก */
+@media (max-width: 420px) {
+  .pzem-row:nth-child(3) .pzem-value { font-size: 34px; }
+  .temp-picker-value { font-size: 38px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .glass { animation: none; }
+  .device-card, .pulse-btn, .temp-step-btn, .temp-set-btn { transition: none; }
+  .device-card:hover { transform: none; }
 }

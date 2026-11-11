@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Smart Home Dashboard</title>
   <link rel="stylesheet" href="/css/style.css">
+  <link rel="stylesheet" href="/css/usage.css">
 </head>
 <body>
   <div class="dash-wrap">
@@ -73,20 +74,41 @@
       </div>
     </div>
 
-    <!-- ===== กราฟเทรนด์การใช้ไฟย้อนหลัง (รายวัน) ===== -->
-    <!-- ช่วงที่เป็นข้อมูลจำลอง (backfill จาก Excel ก่อนเริ่มเก็บข้อมูลจริง) จะโชว์เป็นเส้นประ/สีจาง
-         แยกจากข้อมูลจริงจาก PZEM ชัดเจน ไม่ให้ดูปนกันจนเข้าใจผิดว่าเป็นค่าที่วัดได้จริงทั้งหมด -->
+    <!-- ===== เทรนด์การใช้ไฟย้อนหลัง (รายวัน): ตัวเลขสรุป + กราฟ ===== -->
+    <!-- ชี้/แตะที่กราฟเพื่อดูวันที่และหน่วยไฟ (kWh) ของวันนั้น | สไตล์อยู่ใน /css/usage.css -->
     <div class="section">
-      <div class="section-title">เทรนด์การใช้ไฟย้อนหลัง</div>
-      <div class="pzem-card glass" style="padding: 18px 16px;">
-        <div id="pzem-chart-legend" style="display:flex; gap:16px; font-size:12px; color:var(--text-faint); margin-bottom:10px; flex-wrap:wrap;">
-          <span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--accent);margin-right:5px;"></span>ข้อมูลจริง (PZEM)</span>
-          <span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--text-faint);margin-right:5px;"></span>ข้อมูลจำลอง (ประมาณการย้อนหลัง)</span>
+      <div class="section-title">การใช้ไฟย้อนหลัง</div>
+      <div class="usage-card glass">
+
+        <div class="usage-stats">
+          <div class="usage-stat usage-stat-main">
+            <div class="usage-stat-label">วันนี้</div>
+            <div class="usage-stat-value"><span id="usage-today">--</span><small>kWh</small></div>
+          </div>
+          <div class="usage-stat">
+            <div class="usage-stat-label">เฉลี่ยต่อวัน</div>
+            <div class="usage-stat-value"><span id="usage-avg">--</span><small>kWh</small></div>
+          </div>
+          <div class="usage-stat">
+            <div class="usage-stat-label">รวมทั้งช่วง</div>
+            <div class="usage-stat-value"><span id="usage-total">--</span><small>kWh</small></div>
+          </div>
+          <div class="usage-stat">
+            <div class="usage-stat-label">ใช้สูงสุด <span class="usage-stat-sub" id="usage-peak-date"></span></div>
+            <div class="usage-stat-value"><span id="usage-peak">--</span><small>kWh</small></div>
+          </div>
         </div>
-        <canvas id="pzem-history-chart" height="160"></canvas>
-        <div id="pzem-chart-empty" style="display:none; text-align:center; color:var(--text-faint); font-size:13px; padding:20px 0;">
-          ยังไม่มีข้อมูลย้อนหลัง
+
+        <div class="usage-range" role="group" aria-label="เลือกช่วงเวลา">
+          <button type="button" class="usage-range-btn" data-days="7" aria-pressed="false">7 วัน</button>
+          <button type="button" class="usage-range-btn" data-days="30" aria-pressed="false">30 วัน</button>
+          <button type="button" class="usage-range-btn is-active" data-days="60" aria-pressed="true">60 วัน</button>
         </div>
+
+        <div class="usage-chart-wrap">
+          <canvas id="pzem-history-chart"></canvas>
+        </div>
+        <div id="pzem-chart-empty" class="usage-empty" style="display:none;">ยังไม่มีข้อมูลย้อนหลัง</div>
       </div>
     </div>
 
