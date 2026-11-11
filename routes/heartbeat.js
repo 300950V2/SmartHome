@@ -64,19 +64,14 @@ const SENSOR_MAP = {
   bedroomHumidity: 'sensor.dht_sensor_esp_humidity_indoor'
 };
 // PZEM 004T: ค่าไฟฟ้าจากมิเตอร์วัด ส่งเข้า store.updatePzem() ให้เว็บโชว์เป็นการ์ดเดียว <-- เพิ่ม
-// ⚠️ entity_id ด้านล่างเป็นการ "เดา" จาก name: ที่ตั้งไว้ใน YAML (Voltage, Current, Power, Energy,
-// Frequency, Power Factor) ยังไม่ได้ยืนยันกับ Developer Tools > States เหมือนที่ทำกับ BREAKER_MAP
-// เพราะ sensor พวกนี้ไม่ได้ตั้ง id: ไว้ใน YAML เอง HA เลยสร้าง entity_id อัตโนมัติ
-// (มักจะมี prefix ชื่อ device "consumer_unit_control_" นำหน้าด้วย คล้ายกับที่เจอตอน floor1/floor2)
-// ก่อนใช้งานจริง เช็ค Developer Tools > States ค้นหาคำว่า voltage/current/power/energy/frequency
-// แล้วแก้ 6 บรรทัดนี้ให้ตรงกับของจริง
+// entity_id ยืนยันแล้วจาก /api/heartbeat/status (อุปกรณ์ "Consumer Unit Control" ใน HA)
 const PZEM_MAP = {
-  voltage: 'sensor.voltage',
-  current: 'sensor.current',
-  power: 'sensor.power',
-  energy: 'sensor.energy',
-  frequency: 'sensor.frequency',
-  powerFactor: 'sensor.power_factor'
+  voltage: 'sensor.consumer_unit_control_voltage',
+  current: 'sensor.consumer_unit_control_current',
+  power: 'sensor.consumer_unit_control_power',
+  energy: 'sensor.consumer_unit_control_energy',
+  frequency: 'sensor.consumer_unit_control_frequency',
+  powerFactor: 'sensor.consumer_unit_control_power_factor'
 };
 // ไฟ: ชื่อฝั่งซ้ายคือ key เดียวกับที่หน้าเว็บใช้ ฝั่งขวาคือ switch ใน HA (การจับคู่หน้า/ห้องนั่งเล่นเป็นการเดา ยังไม่ยืนยัน)
 const LIGHT_MAP = {
