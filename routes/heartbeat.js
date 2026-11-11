@@ -95,10 +95,11 @@ const breakerLastKnown = { floor1: null, floor2: null };
 
 // รีเลย์คอยล์ A1/A2 ของ BCH8-16M (สั่งเปิด/ปิดโมดูลจากเว็บได้): เว็บกดปุ๊บเดียว
 // แล้วเซิร์ฟเวอร์จะสั่ง "on" ก่อน แล้วเดี๋ยวสั่ง "off" ตามให้อัตโนมัติ (pulse) <-- เพิ่ม
+// entity_id ยืนยันแล้วจาก /api/heartbeat/status และหน้า Entity ID ใน HA (อุปกรณ์ "Consumer Unit Control")
 const RELAY_MAP = {
-  relayFloor1: 'switch.relay_floor1',
-  relayAircon: 'switch.relay_aircon',
-  relayFloor2: 'switch.relay_floor2'
+  relayFloor1: 'switch.consumer_unit_control_first_floor',
+  relayAircon: 'switch.consumer_unit_control_air_conditioner',
+  relayFloor2: 'switch.consumer_unit_control_second_floor'
 };
 
 // แอร์: คำสั่งฝั่งเว็บ -> script entity_id ใน HA (กดแล้วจบ ไม่มี state ค้าง)
