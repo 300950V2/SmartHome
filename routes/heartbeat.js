@@ -3,6 +3,7 @@
 // 2) ให้บอร์ดมา "ถาม" ทุกไม่กี่วินาทีว่ามีคำสั่งเปิด/ปิดไฟ หรือคำสั่งแอร์ (pulse) ค้างอยู่ไหม (POST /api/heartbeat/poll)
 // 3) สถานะ online/offline เก็บไว้ที่ Supabase (ตาราง heartbeat_state) ด้วย เพื่อให้รอดจากการที่ Render
 //    sleep/restart แล้ว state ในแรมหาย — กันไม่ให้แจ้ง LINE ซ้ำๆ ทุกครั้งที่เซิร์ฟเวอร์ตื่นใหม่
+// 4) แจ้ง LINE เมื่อเบรกเกอร์ชั้น 1 หรือชั้น 2 ตัดไฟ (โมดูลดับ) <-- เพิ่ม
 //
 // ENV ที่ต้องตั้งบน Render:
 //   HEARTBEAT_TOKEN             รหัสลับ (ต้องตรงกับที่ตั้งฝั่ง Home Assistant)
@@ -64,6 +65,18 @@ const LIGHT_MAP = {
   livingLight1: 'switch.light_control_esp_2_lamp_no1',
   livingLight2: 'switch.light_control_esp_2_lamp_no2'
 };
+
+// เบรกเกอร์ชั้น 1/2: แจ้ง LINE เมื่อโมดูลดับ (สถานะเปลี่ยนจาก on -> off) <-- เพิ่ม
+// entity_id ยืนยันแล้วจาก Developer Tools > States ใน HA (ชั้น 2 มี prefix control_room_ เพิ่มมา
+// เพราะตอนสร้าง entity ครั้งแรกชื่อ Area ถูกรวมเข้าไปด้วย ไม่ตรงแพทเทิร์นเดียวกับชั้น 1)
+const BREAKER_MAP = {
+  floor1: { entity: 'binary_sensor.consumer_unit_control_first_floor_status', label: 'เบรกเกอร์ชั้น 1' },
+  floor2: { entity: 'binary_sensor.control_room_consumer_unit_control_second_floor_status', label: 'เบรกเกอร์ชั้น 2' }
+};
+
+// เก็บสถานะล่าสุดที่เคยเห็นแน่ชัด (on/off) ของแต่ละเบรกเกอร์ ไว้เทียบว่าเปลี่ยนตอนไหน
+// เริ่มเป็น null เสมอ เพื่อไม่ให้แจ้งเตือนมั่วตอนเซิร์ฟเวอร์เพิ่งสตาร์ต/ตื่นจาก sleep <-- เพิ่ม
+const breakerLastKnown = { floor1: null, floor2: null };
 
 // แอร์: คำสั่งฝั่งเว็บ -> script entity_id ใน HA (กดแล้วจบ ไม่มี state ค้าง)
 // temp_XX = ตั้งอุณหภูมิตรงๆ (สอนสัญญาณ IR ไว้ที่ 18-30 องศา ทีละ 2 องศา)
@@ -141,6 +154,23 @@ function applySensors() {
     store.updateSensor(update);
   } catch (err) {
     console.error('[heartbeat] updateSensor error:', err.message);
+  }
+}
+
+// เช็คว่าเบรกเกอร์ชั้น 1/2 เพิ่งตัดไฟ (on -> off) หรือกลับมาจ่ายไฟแล้ว (off -> on) แล้วแจ้ง LINE <-- เพิ่ม
+function checkBreakers() {
+  for (const [key, { entity, label }] of Object.entries(BREAKER_MAP)) {
+    const raw = findState(entity);
+    if (raw === undefined) continue;          // ยังไม่มีข้อมูลเข้ามาเลย ข้ามไปก่อน
+    if (OFFLINE_STATES.has(raw)) continue;     // unavailable/unknown ปล่อยให้ตัวจับ offline หลักจัดการแทน
+
+    const prev = breakerLastKnown[key];
+    if (prev === 'on' && raw === 'off') {
+      pushLine(`⚠️ ${label} ตัดไฟ (โมดูลดับ)\nเวลา: ${fmtTime(Date.now())}`);
+    } else if (prev === 'off' && raw === 'on') {
+      pushLine(`✅ ${label} กลับมาจ่ายไฟแล้ว\nเวลา: ${fmtTime(Date.now())}`);
+    }
+    breakerLastKnown[key] = raw;
   }
 }
 
@@ -377,6 +407,7 @@ router.post('/', (req, res) => {
     state.esp = esp;
     state.espUpdatedAt = now;
     applySensors();
+    checkBreakers(); // <-- เพิ่ม
   }
 
   res.json({ ok: true });
@@ -397,6 +428,7 @@ router.post('/poll', (req, res) => {
   if (sw) {
     state.switches = sw;
     state.switchesAt = now;
+    checkBreakers(); // <-- เพิ่ม: poll มาถี่กว่า heartbeat (ทุก ~5 วิ) เช็คตรงนี้ด้วยจะจับการตัดไฟได้ไวขึ้น
   }
 
   const commands = [...collectLightCommands(now), ...collectAcCommands(now)];
@@ -420,6 +452,7 @@ router.get('/status', requireAuth, (req, res) => {
     info: state.lastInfo,
     espUpdatedAt: state.espUpdatedAt ? new Date(state.espUpdatedAt).toISOString() : null,
     lights: currentLights(),
+    breakers: breakerLastKnown, // <-- เพิ่ม: เผื่ออยากดูสถานะล่าสุดผ่าน /status
     pending: Object.fromEntries(pending),
     acPending: acQueue.map(c => c.action),
     devices: summarizeDevices(),
