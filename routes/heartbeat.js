@@ -104,16 +104,20 @@ const RELAY_MAP = {
 
 // แอร์: คำสั่งฝั่งเว็บ -> script entity_id ใน HA (กดแล้วจบ ไม่มี state ค้าง)
 // temp_XX = ตั้งอุณหภูมิตรงๆ (สอนสัญญาณ IR ไว้ที่ 18-30 องศา ทีละ 2 องศา)
+// หมายเหตุ: ตอนสร้าง script temp_18...temp_30 ใน HA ระบบเติม prefix "script_" ซ้ำให้เอง
+// (ตั้งชื่อว่า "temp_18" แต่ entity_id จริงกลายเป็น "script.script_temp_18")
+// ส่วน power_on/power_off ไม่เจอปัญหานี้ (ตั้งชื่อตรงมาตั้งแต่แรก จึงไม่ต้องแก้)
+// ยืนยันจากหน้า Entities ใน HA เมื่อ 2026-11-13 ว่า temp_30 จริงคือ script.script_temp_30
 const AC_SCRIPT_MAP = {
   power_on: 'script.power_on',
   power_off: 'script.power_off',
-  temp_18: 'script.temp_18',
-  temp_20: 'script.temp_20',
-  temp_22: 'script.temp_22',
-  temp_24: 'script.temp_24',
-  temp_26: 'script.temp_26',
-  temp_28: 'script.temp_28',
-  temp_30: 'script.temp_30'
+  temp_18: 'script.script_temp_18',
+  temp_20: 'script.script_temp_20',
+  temp_22: 'script.script_temp_22',
+  temp_24: 'script.script_temp_24',
+  temp_26: 'script.script_temp_26',
+  temp_28: 'script.script_temp_28',
+  temp_30: 'script.script_temp_30'
 };
 
 // อุณหภูมิที่รองรับ (ใช้เช็ค input จาก API)
